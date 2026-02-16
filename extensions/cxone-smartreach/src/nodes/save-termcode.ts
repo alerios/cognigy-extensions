@@ -118,7 +118,7 @@ export const saveTermCode = createNodeDescriptor({
 		]
 	},
 	function: async ({ cognigy, config, childConfigs }: INodeFunctionBaseParams) => {
-		const api = cognigy.api as any;
+		const { api, input, context } = cognigy;
 		const {
 			connection,
 			termCodeId,
@@ -138,9 +138,9 @@ export const saveTermCode = createNodeDescriptor({
 
 			if (useContextData) {
 				// Get data from context
-				const smartreachContext = api.context.getFullContext()?.[contextKey];
+				const smartreachContext = (context as any)?.[contextKey];
 
-				if (!smartreachContext) {
+				if (!smartreachContext || !smartreachContext.initialized) {
 					throw new Error(`SmartReach context not found at key '${contextKey}'. Run Init Context node first.`);
 				}
 
@@ -153,9 +153,9 @@ export const saveTermCode = createNodeDescriptor({
 				}
 			} else {
 				// Try to get from SIP headers if not using context
-				const sipHeaders = api.input?.data?._sipHeaders || {};
-				callTransactionId = sipHeaders['X-transaction-id'] || sipHeaders['x-transaction-id'] || "";
-				callSessionId = sipHeaders['Session-ID'] || sipHeaders['session-id'] || "";
+				const sipHeaders = (input?.data as any)?.payload?.sip?.headers || {};
+				callTransactionId = sipHeaders['lv-transaction-id'] || sipHeaders['x-transaction-id'] || "";
+				callSessionId = sipHeaders['session-id'] || sipHeaders['Session-ID'] || "";
 
 				if (!callTransactionId || !callSessionId) {
 					throw new Error("Transaction ID or Session ID not found in SIP headers");
@@ -188,21 +188,21 @@ export const saveTermCode = createNodeDescriptor({
 			api.log("info", "Term code saved successfully");
 
 			// Store success result
-			api.addToContext("smartreach_termcode_saved", {
+			(context as any).smartreach_termcode_saved = {
 				success: true,
 				termCodeId,
 				timestamp: new Date().toISOString()
-			}, "simple");
+			};
 
 		} catch (error) {
 			api.log("error", `Failed to save term code: ${error.message}`);
 
 			// Store error
-			api.addToContext("smartreach_termcode_error", {
+			(context as any).smartreach_termcode_error = {
 				success: false,
 				error: error.message,
 				timestamp: new Date().toISOString()
-			}, "simple");
+			};
 
 			throw error;
 		}

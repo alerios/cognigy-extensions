@@ -73,23 +73,28 @@ export async function getScreenPopDetails(
 	const endpoint = `${baseUrl}/callControl/agent/screenpop`;
 
 	try {
-		const response = await api.httpRequest({
-			uri: endpoint,
+		const response = await fetch(endpoint, {
 			method: "GET",
 			headers: {
 				"LV-Session": sessionId,
 				"Content-Type": "application/json",
 				"Accept": "application/json"
-			},
-			json: true
+			}
 		});
 
-		if (!response?.screenPopRow) {
+		if (!response.ok) {
+			const errorText = await response.text();
+			throw new Error(`Screen pop API returned ${response.status}: ${errorText}`);
+		}
+
+		const data = await response.json();
+
+		if (!data?.screenPopRow) {
 			api.log("warn", "No screenPopRow in response");
 			return {};
 		}
 
-		const parsedData = parseScreenPopData(response.screenPopRow);
+		const parsedData = parseScreenPopData(data.screenPopRow);
 		api.log("debug", `Screen pop retrieved: ${Object.keys(parsedData).length} fields`);
 		return parsedData;
 	} catch (error) {

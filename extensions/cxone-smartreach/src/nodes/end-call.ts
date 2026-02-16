@@ -63,12 +63,12 @@ export const endCall = createNodeDescriptor({
 		color: "#cf142b"
 	},
 	function: async ({ cognigy, config }: INodeFunctionBaseParams) => {
-		const api = cognigy.api as any;
+		const { api, context } = cognigy;
 		const { connection, saveTermCodeFirst, termCodeId, contextKey } = config as any;
 
 		try {
 			// Get context data
-			const smartreachContext = api.context.getFullContext()?.[contextKey];
+			const smartreachContext = (context as any)?.[contextKey];
 
 			if (!smartreachContext?.lvSessionToken) {
 				throw new Error(`Session token not found in context at '${contextKey}'. Run Init Context node first.`);
@@ -101,10 +101,10 @@ export const endCall = createNodeDescriptor({
 
 			api.log("info", "Call ended successfully");
 
-			api.addToContext("smartreach_call_ended", {
+			(context as any).smartreach_call_ended = {
 				success: true,
 				timestamp: new Date().toISOString()
-			}, "simple");
+			};
 
 		} catch (error) {
 			api.log("error", `Failed to end call: ${error.message}`);

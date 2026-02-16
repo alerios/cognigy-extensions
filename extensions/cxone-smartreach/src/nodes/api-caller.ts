@@ -118,12 +118,12 @@ export const smartReachAPICaller = createNodeDescriptor({
 		color: "#0077C8"
 	},
 	function: async ({ cognigy, config }: INodeFunctionBaseParams) => {
-		const api = cognigy.api as any;
+		const { api, context, input } = cognigy;
 		const { connection, method, endpoint, headers, body, contextKey, storeLocation, storeKey } = config as any;
 
 		try {
 			// Get session token from context
-			const smartreachContext = api.context.getFullContext()?.[contextKey];
+			const smartreachContext = (context as any)?.[contextKey];
 
 			if (!smartreachContext?.lvSessionToken) {
 				throw new Error(`Session token not found in context at '${contextKey}'. Run Init Context node first.`);
@@ -161,31 +161,40 @@ export const smartReachAPICaller = createNodeDescriptor({
 			}
 
 			// Make request
-			const options: any = {
-				uri: fullEndpoint,
+			const fetchOptions: any = {
 				method,
 				headers: {
 					"LV-Session": lvSessionToken,
 					"Content-Type": "application/json",
 					"Accept": "application/json",
 					...additionalHeaders
-				},
-				json: true
+				}
 			};
 
 			if (requestBody) {
-				options.body = requestBody;
+				fetchOptions.body = JSON.stringify(requestBody);
 			}
 
-			const response = await api.httpRequest(options);
+			const response = await fetch(fullEndpoint, fetchOptions);
+
+			if (!response.ok) {
+				const errorText = await response.text();
+				throw new Error(`API returned ${response.status}: ${errorText}`);
+			}
+
+			// For 204 No Content responses
+			let data: any = { success: true };
+			if (response.status !== 204) {
+				data = await response.json();
+			}
 
 			api.log("info", `API call successful`);
 
 			// Store result
 			if (storeLocation === "context") {
-				api.addToContext(storeKey, response, "simple");
+				(context as any)[storeKey] = data;
 			} else {
-				api.addToInput(storeKey, response);
+				(input as any)[storeKey] = data;
 			}
 
 		} catch (error) {

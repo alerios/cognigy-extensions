@@ -210,7 +210,7 @@ export const docDbReporter = createNodeDescriptor({
 		color: "#0077C8"
 	},
 	function: async ({ cognigy, config }: INodeFunctionBaseParams) => {
-		const api = cognigy.api as any;
+		const { api, context } = cognigy;
 		const {
 			docDbEndpoint,
 			docDbToken,
@@ -253,32 +253,35 @@ export const docDbReporter = createNodeDescriptor({
 
 			api.log("info", `Sending conversation details to DocDb for ANI: ${ani}`);
 
-			await api.httpRequest({
-				uri: docDbEndpoint,
+			const response = await fetch(docDbEndpoint, {
 				method: "POST",
 				headers: {
 					"GET-TOKEN": docDbToken,
 					"Content-Type": "application/json"
 				},
-				body,
-				json: true
+				body: JSON.stringify(body)
 			});
+
+			if (!response.ok) {
+				const errorText = await response.text();
+				throw new Error(`DocDb API returned ${response.status}: ${errorText}`);
+			}
 
 			api.log("info", "Conversation details sent to DocDb successfully");
 
-			api.addToContext("smartreach_docdb_sent", {
+			(context as any).smartreach_docdb_sent = {
 				success: true,
 				timestamp: new Date().toISOString()
-			}, "simple");
+			};
 
 		} catch (error) {
 			api.log("error", `Failed to send to DocDb: ${error.message}`);
 
-			api.addToContext("smartreach_docdb_error", {
+			(context as any).smartreach_docdb_error = {
 				success: false,
 				error: error.message,
 				timestamp: new Date().toISOString()
-			}, "simple");
+			};
 
 			throw error;
 		}

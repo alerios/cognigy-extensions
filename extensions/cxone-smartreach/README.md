@@ -196,7 +196,7 @@ Create a **SmartReach Connection** with the following fields:
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| **Access Token** | LIVEVOX-Access header value | `8146ba6345XXXXXXXX5cd5b8719` |
+| **Access Token** | LV-Access header value | `8146ba6345XXXXXXXX5cd5b8719` |
 | **Client Name** | LiveVox client name | `Integration_Services` |
 | **Agent Password** | Shared password for virtual agents | `your-agent-password` |
 | **Base URL** | LiveVox API base URL | `https://api.livevox.com` or `https://api.stg4.livevox.com` |
@@ -257,7 +257,7 @@ These are automatically parsed by the **Init SmartReach Context** node.
 
 ### Session API (Login)
 - **Endpoint**: `POST /session/login`
-- **Headers**: `LIVEVOX-Access: <token>`
+- **Headers**: `LV-Access: <token>`
 - **Body**: `{ clientName, userName, password, agent: true }`
 - **Response**: `{ sessionId: "..." }`
 - **Session Expiration**: 2-hour rolling window (renewed on each API call)

@@ -97,28 +97,33 @@ export async function loginAndGetSession(
 	const endpoint = `${baseUrl}/session/login`;
 
 	try {
-		const response = await api.httpRequest({
-			uri: endpoint,
+		const response = await fetch(endpoint, {
 			method: "POST",
 			headers: {
-				"LIVEVOX-Access": accessToken,
+				"LV-Access": accessToken,
 				"Content-Type": "application/json"
 			},
-			body: {
+			body: JSON.stringify({
 				clientName,
 				userName,
 				password,
 				agent: true
-			},
-			json: true
+			})
 		});
 
-		if (!response?.sessionId) {
+		if (!response.ok) {
+			const errorText = await response.text();
+			throw new Error(`Login API returned ${response.status}: ${errorText}`);
+		}
+
+		const data = await response.json();
+
+		if (!data?.sessionId) {
 			throw new Error("No sessionId in login response");
 		}
 
-		api.log("debug", `Successfully logged in as ${userName}, sessionId: ${response.sessionId.substring(0, 8)}...`);
-		return response.sessionId;
+		api.log("debug", `Successfully logged in as ${userName}, sessionId: ${data.sessionId.substring(0, 8)}...`);
+		return data.sessionId;
 	} catch (error) {
 		api.log("error", `LiveVox login failed: ${error.message}`);
 		throw new Error(`Failed to authenticate with LiveVox: ${error.message}`);
@@ -162,22 +167,32 @@ export async function makeAuthenticatedRequest(
 ): Promise<any> {
 	try {
 		const options: any = {
-			uri: endpoint,
 			method,
 			headers: {
 				"LV-Session": sessionId,
 				"Content-Type": "application/json",
 				"Accept": "application/json"
-			},
-			json: true
+			}
 		};
 
 		if (body) {
-			options.body = body;
+			options.body = JSON.stringify(body);
 		}
 
-		const response = await api.httpRequest(options);
-		return response;
+		const response = await fetch(endpoint, options);
+
+		if (!response.ok) {
+			const errorText = await response.text();
+			throw new Error(`LiveVox API returned ${response.status}: ${errorText}`);
+		}
+
+		// For 204 No Content responses
+		if (response.status === 204) {
+			return { success: true };
+		}
+
+		const data = await response.json();
+		return data;
 	} catch (error) {
 		api.log("error", `LiveVox API request failed: ${error.message}`);
 		throw error;

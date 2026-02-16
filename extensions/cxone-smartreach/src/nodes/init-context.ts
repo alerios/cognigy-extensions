@@ -86,17 +86,17 @@ export const initSmartReachContext = createNodeDescriptor({
 		]
 	},
 	function: async ({ cognigy, config, childConfigs }: INodeFunctionBaseParams) => {
-		const api = cognigy.api as any;
+		const { api, input, context } = cognigy;
 		const { connection, storeLocation, contextKey, fallbackAgentLoginId } = config as any;
 
 		try {
-			// Parse SIP headers from input
-			const sipHeaders = api.input?.data?._sipHeaders || {};
+			// Parse SIP headers from input - headers are in payload.sip.headers
+			const sipHeaders = (input?.data as any)?.payload?.sip?.headers || {};
 
-			// Extract call information from SIP headers
-			const agentLoginId = sipHeaders['X-agent-login-id'] || sipHeaders['x-agent-login-id'] || fallbackAgentLoginId;
-			const transactionId = sipHeaders['X-transaction-id'] || sipHeaders['x-transaction-id'] || "";
-			const sessionId = sipHeaders['Session-ID'] || sipHeaders['session-id'] || "";
+			// Extract call information from SIP headers (lowercase format from LiveVox)
+			const agentLoginId = sipHeaders['lv-agent-login-id'] || sipHeaders['x-agent-login-id'] || fallbackAgentLoginId;
+			const transactionId = sipHeaders['lv-transaction-id'] || sipHeaders['x-transaction-id'] || "";
+			const sessionId = sipHeaders['session-id'] || sipHeaders['Session-ID'] || "";
 
 			// Extract DNIS (Dialed Number Information Service) from SIP headers
 			// Try direct DNIS header first, then fallback to 'to' or 'uri' headers
@@ -163,9 +163,9 @@ export const initSmartReachContext = createNodeDescriptor({
 
 			// Store in specified location
 			if (storeLocation === "context") {
-				api.addToContext(contextKey, smartreachContext, "simple");
+				(context as any)[contextKey] = smartreachContext;
 			} else {
-				api.addToInput(contextKey, smartreachContext);
+				(input as any)[contextKey] = smartreachContext;
 			}
 
 			api.log("info", "SmartReach context initialized successfully");
@@ -181,9 +181,9 @@ export const initSmartReachContext = createNodeDescriptor({
 			};
 
 			if (storeLocation === "context") {
-				api.addToContext(contextKey, errorData, "simple");
+				(context as any)[contextKey] = errorData;
 			} else {
-				api.addToInput(contextKey, errorData);
+				(input as any)[contextKey] = errorData;
 			}
 		}
 	}

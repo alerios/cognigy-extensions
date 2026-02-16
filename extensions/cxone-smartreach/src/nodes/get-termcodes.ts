@@ -83,12 +83,12 @@ export const getTermCodes = createNodeDescriptor({
 		color: "#0077C8"
 	},
 	function: async ({ cognigy, config }: INodeFunctionBaseParams) => {
-		const api = cognigy.api as any;
+		const { api, context, input } = cognigy;
 		const { connection, serviceId, contextKey, storeLocation, storeKey } = config as any;
 
 		try {
 			// Get session token from context
-			const smartreachContext = api.context.getFullContext()?.[contextKey];
+			const smartreachContext = (context as any)?.[contextKey];
 
 			if (!smartreachContext?.lvSessionToken) {
 				throw new Error(`Session token not found in context at '${contextKey}'. Run Init Context node first.`);
@@ -106,9 +106,9 @@ export const getTermCodes = createNodeDescriptor({
 
 			// Store result
 			if (storeLocation === "context") {
-				api.addToContext(storeKey, response, "simple");
+				(context as any)[storeKey] = response;
 			} else {
-				api.addToInput(storeKey, response);
+				(input as any)[storeKey] = response;
 			}
 
 		} catch (error) {
