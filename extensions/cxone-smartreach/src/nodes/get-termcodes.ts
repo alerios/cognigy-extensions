@@ -1,0 +1,119 @@
+/**
+ * Get Term Codes Node
+ * Author: Alejandro Rios <alejandro.rios@nice.com>
+ */
+
+import { createNodeDescriptor, INodeFunctionBaseParams } from "@cognigy/extension-tools";
+import { makeAuthenticatedRequest } from "../helpers/auth-utils";
+
+export const getTermCodes = createNodeDescriptor({
+	type: "getTermCodes",
+	defaultLabel: "Get Term Codes",
+	summary: "Retrieve available term codes for a service",
+	fields: [
+		{
+			key: "connection",
+			label: "SmartReach Connection",
+			type: "connection",
+			params: {
+				connectionType: "smartreach",
+				required: true
+			}
+		},
+		{
+			key: "serviceId",
+			label: "Service ID",
+			type: "cognigyText",
+			params: {
+				required: true
+			},
+			description: "The service ID to get term codes for"
+		},
+		{
+			key: "contextKey",
+			label: "SmartReach Context Key",
+			type: "cognigyText",
+			defaultValue: "smartreach",
+			description: "Where to find the SmartReach session token"
+		},
+		{
+			key: "storeLocation",
+			label: "Where to store the result",
+			type: "select",
+			defaultValue: "context",
+			params: {
+				options: [
+					{
+						label: "Input",
+						value: "input"
+					},
+					{
+						label: "Context",
+						value: "context"
+					}
+				],
+				required: true
+			}
+		},
+		{
+			key: "storeKey",
+			label: "Store Key",
+			type: "cognigyText",
+			defaultValue: "smartreach_termcodes",
+			params: {
+				required: true
+			}
+		}
+	],
+	sections: [
+		{
+			key: "storage",
+			label: "Storage Options",
+			defaultCollapsed: true,
+			fields: ["storeLocation", "storeKey"]
+		}
+	],
+	form: [
+		{ type: "field", key: "connection" },
+		{ type: "field", key: "serviceId" },
+		{ type: "field", key: "contextKey" },
+		{ type: "section", key: "storage" }
+	],
+	appearance: {
+		color: "#0077C8"
+	},
+	function: async ({ cognigy, config }: INodeFunctionBaseParams) => {
+		const api = cognigy.api as any;
+		const { connection, serviceId, contextKey, storeLocation, storeKey } = config as any;
+
+		try {
+			// Get session token from context
+			const smartreachContext = api.context.getFullContext()?.[contextKey];
+
+			if (!smartreachContext?.lvSessionToken) {
+				throw new Error(`Session token not found in context at '${contextKey}'. Run Init Context node first.`);
+			}
+
+			const lvSessionToken = smartreachContext.lvSessionToken;
+
+			api.log("info", `Retrieving term codes for service: ${serviceId}`);
+
+			// Make API call
+			const endpoint = `${connection.baseUrl}/callControl/agent/termCode?serviceId=${serviceId}`;
+			const response = await makeAuthenticatedRequest(api, lvSessionToken, endpoint, "GET");
+
+			api.log("info", `Retrieved ${response?.length || 0} term codes`);
+
+			// Store result
+			if (storeLocation === "context") {
+				api.addToContext(storeKey, response, "simple");
+			} else {
+				api.addToInput(storeKey, response);
+			}
+
+		} catch (error) {
+			api.log("error", `Failed to get term codes: ${error.message}`);
+			throw error;
+		}
+	}
+});
