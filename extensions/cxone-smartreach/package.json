@@ -1,6 +1,6 @@
 {
   "name": "cxone-smartreach",
-  "version": "0.0.4",
+  "version": "0.0.12",
   "description": "Cognigy Extension for NiCE CXone SmartReach integration",
   "main": "build/module.js",
   "author": "NiCE CXone SmartReach",

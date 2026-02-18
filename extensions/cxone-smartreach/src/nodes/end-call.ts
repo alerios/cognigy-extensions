@@ -78,7 +78,7 @@ export const endCall = createNodeDescriptor({
 
 			// Save term code first if requested
 			if (saveTermCodeFirst && termCodeId) {
-				api.log("info", `Saving term code ${termCodeId} before ending call`);
+				api.log("info", `[END_CALL] Saving term code ${termCodeId} before ending call`);
 
 				const termCodeBody = {
 					callTransactionId: smartreachContext.transactionId,
@@ -87,19 +87,21 @@ export const endCall = createNodeDescriptor({
 					moveAgentToNotReady: false
 				};
 
+				api.log("info", `[END_CALL] Term code body: ${JSON.stringify(termCodeBody)}`);
+
 				const termCodeEndpoint = `${connection.baseUrl}/callControl/agent/call/termCode`;
 				await makeAuthenticatedRequest(api, lvSessionToken, termCodeEndpoint, "PUT", termCodeBody);
 
-				api.log("info", "Term code saved successfully");
+				api.log("info", "[END_CALL] Term code saved successfully");
 			}
 
 			// End the call
-			api.log("info", "Ending call");
+			api.log("info", `[END_CALL] Ending call - TransactionId: ${smartreachContext.transactionId}, SessionId: ${smartreachContext.sessionId}`);
 
 			const endCallEndpoint = `${connection.baseUrl}/callControl/agent/call/end`;
 			await makeAuthenticatedRequest(api, lvSessionToken, endCallEndpoint, "POST");
 
-			api.log("info", "Call ended successfully");
+			api.log("info", "[END_CALL] Call ended successfully");
 
 			(context as any).smartreach_call_ended = {
 				success: true,

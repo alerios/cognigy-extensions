@@ -95,7 +95,9 @@ export async function getScreenPopDetails(
 		}
 
 		const parsedData = parseScreenPopData(data.screenPopRow);
-		api.log("debug", `Screen pop retrieved: ${Object.keys(parsedData).length} fields`);
+		api.log("info", `Screen pop retrieved: ${Object.keys(parsedData).length} fields`);
+		api.log("info", `Screen pop data: ${JSON.stringify(parsedData)}`);
+		api.log("info", `Raw screen pop rows: ${JSON.stringify(data.screenPopRow)}`);
 		return parsedData;
 	} catch (error) {
 		api.log("warn", `Failed to get screen pop: ${error.message}`);

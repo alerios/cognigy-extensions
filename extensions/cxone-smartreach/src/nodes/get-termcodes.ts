@@ -96,13 +96,17 @@ export const getTermCodes = createNodeDescriptor({
 
 			const lvSessionToken = smartreachContext.lvSessionToken;
 
-			api.log("info", `Retrieving term codes for service: ${serviceId}`);
+			api.log("info", `[GET_TERMCODES] Retrieving term codes for service: ${serviceId}`);
 
 			// Make API call
 			const endpoint = `${connection.baseUrl}/callControl/agent/termCode?serviceId=${serviceId}`;
 			const response = await makeAuthenticatedRequest(api, lvSessionToken, endpoint, "GET");
 
-			api.log("info", `Retrieved ${response?.length || 0} term codes`);
+			const termCodeCount = response?.length || 0;
+			api.log("info", `[GET_TERMCODES] Retrieved ${termCodeCount} term codes`);
+			if (termCodeCount > 0) {
+				api.log("info", `[GET_TERMCODES] Term codes (first 300 chars): ${JSON.stringify(response).substring(0, 300)}`);
+			}
 
 			// Store result
 			if (storeLocation === "context") {

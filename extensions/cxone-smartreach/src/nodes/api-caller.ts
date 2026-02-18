@@ -173,12 +173,18 @@ export const smartReachAPICaller = createNodeDescriptor({
 
 			if (requestBody) {
 				fetchOptions.body = JSON.stringify(requestBody);
+				api.log("info", `[API_CALLER] Request body: ${JSON.stringify(requestBody)}`);
 			}
+
+			api.log("info", `[API_CALLER] Making ${method} request to: ${fullEndpoint}`);
 
 			const response = await fetch(fullEndpoint, fetchOptions);
 
+			api.log("info", `[API_CALLER] Response status: ${response.status}`);
+
 			if (!response.ok) {
 				const errorText = await response.text();
+				api.log("error", `[API_CALLER] Error response: ${errorText}`);
 				throw new Error(`API returned ${response.status}: ${errorText}`);
 			}
 
@@ -186,9 +192,10 @@ export const smartReachAPICaller = createNodeDescriptor({
 			let data: any = { success: true };
 			if (response.status !== 204) {
 				data = await response.json();
+				api.log("info", `[API_CALLER] Response data (first 200 chars): ${JSON.stringify(data).substring(0, 200)}`);
 			}
 
-			api.log("info", `API call successful`);
+			api.log("info", `[API_CALLER] API call successful, storing in ${storeLocation}.${storeKey}`);
 
 			// Store result
 			if (storeLocation === "context") {

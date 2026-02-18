@@ -179,13 +179,14 @@ export const saveTermCode = createNodeDescriptor({
 			if (paymentAmt) body.paymentAmt = paymentAmt;
 			if (agentEnteredAccount) body.agentEnteredAccount = agentEnteredAccount;
 
-			api.log("info", `Saving term code ${termCodeId} for transaction ${callTransactionId}`);
+			api.log("info", `[SAVE_TERMCODE] Saving term code ${termCodeId} for transaction ${callTransactionId}`);
+			api.log("info", `[SAVE_TERMCODE] Request body: ${JSON.stringify(body)}`);
 
 			// Make API call
 			const endpoint = `${connection.baseUrl}/callControl/agent/call/termCode`;
 			await makeAuthenticatedRequest(api, lvSessionToken, endpoint, "PUT", body);
 
-			api.log("info", "Term code saved successfully");
+			api.log("info", `[SAVE_TERMCODE] Term code ${termCodeId} saved successfully`);
 
 			// Store success result
 			(context as any).smartreach_termcode_saved = {

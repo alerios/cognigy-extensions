@@ -251,7 +251,9 @@ export const docDbReporter = createNodeDescriptor({
 				PendingStatus: pendingStatus
 			};
 
-			api.log("info", `Sending conversation details to DocDb for ANI: ${ani}`);
+			api.log("info", `[DOCDB] Sending conversation details to DocDb for ANI: ${ani}`);
+			api.log("info", `[DOCDB] Transaction ID: ${transactionId}, DNIS: ${dnis}`);
+			api.log("info", `[DOCDB] Request body: ${JSON.stringify(body)}`);
 
 			const response = await fetch(docDbEndpoint, {
 				method: "POST",
@@ -262,12 +264,15 @@ export const docDbReporter = createNodeDescriptor({
 				body: JSON.stringify(body)
 			});
 
+			api.log("info", `[DOCDB] Response status: ${response.status}`);
+
 			if (!response.ok) {
 				const errorText = await response.text();
+				api.log("error", `[DOCDB] Error response: ${errorText}`);
 				throw new Error(`DocDb API returned ${response.status}: ${errorText}`);
 			}
 
-			api.log("info", "Conversation details sent to DocDb successfully");
+			api.log("info", "[DOCDB] Conversation details sent to DocDb successfully");
 
 			(context as any).smartreach_docdb_sent = {
 				success: true,

@@ -15,6 +15,30 @@ const SESSION_CACHE_KEY = "smartreach_session_cache";
 const SESSION_EXPIRY_MS = 7200000; // 2 hours in milliseconds
 const ENCRYPTION_KEY = "cognigy-smartreach-session-key-32b"; // Should be 32 bytes for AES-256
 const IV_LENGTH = 16;
+const FETCH_TIMEOUT_MS = 30000; // 30 second timeout for API calls
+
+/**
+ * Helper to add timeout to fetch requests
+ */
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number = FETCH_TIMEOUT_MS, api?: any): Promise<Response> {
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+	try {
+		const response = await fetch(url, {
+			...options,
+			signal: controller.signal
+		});
+		clearTimeout(timeoutId);
+		return response;
+	} catch (error) {
+		clearTimeout(timeoutId);
+		if (api) {
+			api.log("error", `Fetch error: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		throw error;
+	}
+}
 
 /**
  * Encrypt session token for secure storage
@@ -97,23 +121,65 @@ export async function loginAndGetSession(
 	const endpoint = `${baseUrl}/session/login`;
 
 	try {
-		const response = await fetch(endpoint, {
+		api.log("info", `[CONNECTIVITY_CHECK] Checking connectivity to AWS...`);
+
+		try {
+			const ipResponse = await fetchWithTimeout("https://checkip.amazonaws.com/", {
+				method: "GET"
+			}, 5000, api);
+			const ipText = await ipResponse.text();
+			const myIp = ipText.trim();
+			api.log("info", `[CONNECTIVITY_CHECK] Successfully reached checkip.amazonaws.com`);
+			api.log("info", `[CONNECTIVITY_CHECK] Extension IP: ${myIp}`);
+		} catch (ipCheckError) {
+			api.log("warn", `[CONNECTIVITY_CHECK] Could not determine IP: ${ipCheckError instanceof Error ? ipCheckError.message : String(ipCheckError)}`);
+		}
+
+		api.log("info", `[LOGIN_START] About to log details`);
+		api.log("info", `[LOGIN_START] baseUrl type: ${typeof baseUrl}, value: ${baseUrl}`);
+		api.log("info", `[LOGIN_START] endpoint: ${endpoint}`);
+
+		const requestBody = {
+			clientName,
+			userName,
+			password,
+			agent: "true"
+		};
+
+		const requestBodyJson = JSON.stringify(requestBody);
+		api.log("info", `[LOGIN_START] Body: ${requestBodyJson}`);
+
+		const headers: Record<string, string> = {
+			"LV-Access": accessToken,
+			"Content-Type": "application/json",
+			"Accept": "application/json"
+		};
+
+		api.log("info", `[LOGIN_START] Calling fetch now for: ${endpoint}`);
+
+		const response = await fetchWithTimeout(endpoint, {
 			method: "POST",
-			headers: {
-				"LV-Access": accessToken,
-				"Content-Type": "application/json"
-			},
-			body: JSON.stringify({
-				clientName,
-				userName,
-				password,
-				agent: true
-			})
-		});
+			headers,
+			body: requestBodyJson
+		}, FETCH_TIMEOUT_MS, api);
+
+		api.log("info", `[LOGIN_RESPONSE] Got response with status: ${response.status}`);
 
 		if (!response.ok) {
 			const errorText = await response.text();
-			throw new Error(`Login API returned ${response.status}: ${errorText}`);
+			const errorDetails = errorText || "(empty response body)";
+
+			api.log("info", `[LOGIN] Error response - Status: ${response.status}`);
+			api.log("info", `[LOGIN] Error body: ${errorDetails}`);
+
+			// Try to get all response headers
+			const headersList: any = {};
+			response.headers.forEach((value, key) => {
+				headersList[key] = value;
+			});
+			api.log("info", `[LOGIN] Response headers: ${JSON.stringify(headersList)}`);
+
+			throw new Error(`Login API returned ${response.status}: ${errorDetails}`);
 		}
 
 		const data = await response.json();
@@ -125,8 +191,25 @@ export async function loginAndGetSession(
 		api.log("debug", `Successfully logged in as ${userName}, sessionId: ${data.sessionId.substring(0, 8)}...`);
 		return data.sessionId;
 	} catch (error) {
-		api.log("error", `LiveVox login failed: ${error.message}`);
-		throw new Error(`Failed to authenticate with LiveVox: ${error.message}`);
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		const fullError = error instanceof Error ? error.stack : "";
+
+		// Log more diagnostic info for network errors
+		if (errorMessage.includes("fetch failed")) {
+			api.log("error", `Network error during login to ${endpoint}: Check DNS resolution, firewall, SSL/TLS certificate, and network connectivity`);
+		}
+
+		// Log diagnostic info for 599 errors (server-side error)
+		if (errorMessage.includes("599")) {
+			api.log("error", `LiveVox returned 599 Server Error. This typically indicates:`);
+			api.log("error", `  - Invalid authentication credentials (clientName, agentLoginId, or password)`);
+			api.log("error", `  - Invalid or expired LV-Access token`);
+			api.log("error", `  - Malformed request body or missing required fields`);
+			api.log("error", `  - LiveVox API service issue`);
+		}
+
+		api.log("error", `LiveVox login failed: ${errorMessage}${fullError ? ` | Stack: ${fullError}` : ""}`);
+		throw new Error(`Failed to authenticate with LiveVox: ${errorMessage}`);
 	}
 }
 
@@ -179,7 +262,7 @@ export async function makeAuthenticatedRequest(
 			options.body = JSON.stringify(body);
 		}
 
-		const response = await fetch(endpoint, options);
+		const response = await fetchWithTimeout(endpoint, options, FETCH_TIMEOUT_MS, api);
 
 		if (!response.ok) {
 			const errorText = await response.text();
@@ -194,7 +277,8 @@ export async function makeAuthenticatedRequest(
 		const data = await response.json();
 		return data;
 	} catch (error) {
-		api.log("error", `LiveVox API request failed: ${error.message}`);
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		api.log("error", `LiveVox API request failed: ${errorMessage}`);
 		throw error;
 	}
 }
