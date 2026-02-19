@@ -170,23 +170,24 @@ Use this node to access any LiveVox API endpoint not covered by specific nodes. 
 
 ---
 
-### 6. End Call
+### 6. Transfer Call
 
-**Purpose**: End the current call and optionally save a term code before terminating.
+**Purpose**: Transfer the current call to a supervisor or another number.
 
 **What it does**:
-- Calls LiveVox End Call API
-- Optionally saves term code before ending
-- Cleans up call state
+- Calls LiveVox Transfer Call API to manually conference a supervisor
+- Optionally puts the call on hold during transfer
+- Supports secure transfer mode
 
 **Configuration**:
 - **SmartReach Connection**: Connection credentials
-- **Save Term Code Before Ending**: Toggle to save term code first
-- **Term Code ID**: Term code to save before ending
+- **Supervisor Number**: Phone number to transfer the call to (required)
+- **Put Call On Hold**: Toggle to put the call on hold during transfer (default: enabled)
+- **Secure Transfer**: Toggle to enable secure transfer mode (default: disabled)
 - **SmartReach Context Key**: Where to find session data (default: `smartreach`)
 
 **Usage**:
-Use this node when the AI conversation is complete and the call should be terminated programmatically.
+Use this node when you need to transfer the call to a supervisor or another extension while the AI conversation is in progress.
 
 ---
 
@@ -216,7 +217,7 @@ Create a **SmartReach Connection** with the following fields:
 2. **Init SmartReach Context** → Parse SIP, authenticate, get screen pop
 3. **Conversation** → AI handles customer request
 4. **Save Term Code** → Save "Call Completed" term code
-5. **End Call** → Terminate call
+5. **Transfer Call** → Transfer to supervisor or close
 6. **DocDb Reporter** (optional) → Send conversation details
 
 ### Scenario 2: Escalation to Live Agent
@@ -224,17 +225,17 @@ Create a **SmartReach Connection** with the following fields:
 1. **Call arrives** → LiveVox routes to Cognigy
 2. **Init SmartReach Context** → Parse SIP, authenticate, get screen pop
 3. **Conversation** → AI determines escalation needed
-4. **Save Term Code** → Save "Escalate to Agent" term code
-5. **End Call** → Transfer control back to LiveVox for agent routing
+4. **Transfer Call** → Transfer to available agent
+5. **Save Term Code** → Log disposition after transfer
 
-### Scenario 3: Dynamic Term Code Selection
+### Scenario 3: Dynamic Transfer Based on Request
 
 1. **Init SmartReach Context** → Initialize call
 2. **Get Term Codes** → Retrieve available term codes for service
 3. **Conversation** → AI handles request
-4. **Logic** → Select appropriate term code based on outcome
-5. **Save Term Code** → Save selected term code
-6. **End Call** → Terminate
+4. **Logic** → Determine transfer target based on outcome
+5. **Transfer Call** → Transfer to supervisor or department
+6. **DocDb Reporter** (optional) → Send conversation details
 
 ---
 

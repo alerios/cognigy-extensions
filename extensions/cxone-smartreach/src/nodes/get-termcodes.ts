@@ -30,13 +30,6 @@ export const getTermCodes = createNodeDescriptor({
 			description: "The service ID to get term codes for"
 		},
 		{
-			key: "contextKey",
-			label: "SmartReach Context Key",
-			type: "cognigyText",
-			defaultValue: "smartreach",
-			description: "Where to find the SmartReach session token"
-		},
-		{
 			key: "storeLocation",
 			label: "Where to store the result",
 			type: "select",
@@ -76,7 +69,6 @@ export const getTermCodes = createNodeDescriptor({
 	form: [
 		{ type: "field", key: "connection" },
 		{ type: "field", key: "serviceId" },
-		{ type: "field", key: "contextKey" },
 		{ type: "section", key: "storage" }
 	],
 	appearance: {
@@ -84,7 +76,8 @@ export const getTermCodes = createNodeDescriptor({
 	},
 	function: async ({ cognigy, config }: INodeFunctionBaseParams) => {
 		const { api, context, input } = cognigy;
-		const { connection, serviceId, contextKey, storeLocation, storeKey } = config as any;
+		const { connection, serviceId, storeLocation, storeKey } = config as any;
+		const contextKey = "smartreach";
 
 		try {
 			// Get session token from context

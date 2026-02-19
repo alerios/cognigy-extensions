@@ -121,20 +121,6 @@ export async function loginAndGetSession(
 	const endpoint = `${baseUrl}/session/login`;
 
 	try {
-		api.log("info", `[CONNECTIVITY_CHECK] Checking connectivity to AWS...`);
-
-		try {
-			const ipResponse = await fetchWithTimeout("https://checkip.amazonaws.com/", {
-				method: "GET"
-			}, 5000, api);
-			const ipText = await ipResponse.text();
-			const myIp = ipText.trim();
-			api.log("info", `[CONNECTIVITY_CHECK] Successfully reached checkip.amazonaws.com`);
-			api.log("info", `[CONNECTIVITY_CHECK] Extension IP: ${myIp}`);
-		} catch (ipCheckError) {
-			api.log("warn", `[CONNECTIVITY_CHECK] Could not determine IP: ${ipCheckError instanceof Error ? ipCheckError.message : String(ipCheckError)}`);
-		}
-
 		api.log("info", `[LOGIN_START] About to log details`);
 		api.log("info", `[LOGIN_START] baseUrl type: ${typeof baseUrl}, value: ${baseUrl}`);
 		api.log("info", `[LOGIN_START] endpoint: ${endpoint}`);
@@ -193,6 +179,20 @@ export async function loginAndGetSession(
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : String(error);
 		const fullError = error instanceof Error ? error.stack : "";
+
+		// Run connectivity check only if there's an error
+		api.log("info", `[CONNECTIVITY_CHECK] Login failed, checking connectivity to AWS...`);
+		try {
+			const ipResponse = await fetchWithTimeout("https://checkip.amazonaws.com/", {
+				method: "GET"
+			}, 5000, api);
+			const ipText = await ipResponse.text();
+			const myIp = ipText.trim();
+			api.log("info", `[CONNECTIVITY_CHECK] Successfully reached checkip.amazonaws.com`);
+			api.log("info", `[CONNECTIVITY_CHECK] Extension IP: ${myIp}`);
+		} catch (ipCheckError) {
+			api.log("warn", `[CONNECTIVITY_CHECK] Could not determine IP: ${ipCheckError instanceof Error ? ipCheckError.message : String(ipCheckError)}`);
+		}
 
 		// Log more diagnostic info for network errors
 		if (errorMessage.includes("fetch failed")) {

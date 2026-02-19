@@ -28,16 +28,6 @@ export const saveTermCode = createNodeDescriptor({
 			description: "Use call data from SmartReach context (set by Init Context node)"
 		},
 		{
-			key: "contextKey",
-			label: "Context Key",
-			type: "cognigyText",
-			defaultValue: "smartreach",
-			condition: {
-				key: "useContextData",
-				value: true
-			}
-		},
-		{
 			key: "termCodeId",
 			label: "Term Code ID",
 			type: "cognigyText",
@@ -87,7 +77,7 @@ export const saveTermCode = createNodeDescriptor({
 			key: "context",
 			label: "Context Settings",
 			defaultCollapsed: false,
-			fields: ["useContextData", "contextKey"]
+			fields: ["useContextData"]
 		},
 		{
 			key: "required",
@@ -127,9 +117,9 @@ export const saveTermCode = createNodeDescriptor({
 			moveAgentToNotReady,
 			paymentAmt,
 			agentEnteredAccount,
-			useContextData,
-			contextKey
+			useContextData
 		} = config as any;
+		const contextKey = "smartreach";
 
 		try {
 			let callTransactionId = "";
@@ -195,6 +185,12 @@ export const saveTermCode = createNodeDescriptor({
 				timestamp: new Date().toISOString()
 			};
 
+			// Route to success child
+			const onSuccessChild = childConfigs.find(child => child.type === "onSuccessSave");
+			if (onSuccessChild) {
+				api.setNextNode(onSuccessChild.id);
+			}
+
 		} catch (error) {
 			api.log("error", `Failed to save term code: ${error.message}`);
 
@@ -205,7 +201,11 @@ export const saveTermCode = createNodeDescriptor({
 				timestamp: new Date().toISOString()
 			};
 
-			throw error;
+			// Route to error child
+			const onErrorChild = childConfigs.find(child => child.type === "onErrorSave");
+			if (onErrorChild) {
+				api.setNextNode(onErrorChild.id);
+			}
 		}
 	}
 });

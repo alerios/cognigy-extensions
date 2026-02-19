@@ -60,13 +60,6 @@ export const smartReachAPICaller = createNodeDescriptor({
 			description: "Request body for POST/PUT/PATCH requests"
 		},
 		{
-			key: "contextKey",
-			label: "SmartReach Context Key",
-			type: "cognigyText",
-			defaultValue: "smartreach",
-			description: "Where to find the SmartReach session token"
-		},
-		{
 			key: "storeLocation",
 			label: "Where to store the result",
 			type: "select",
@@ -106,7 +99,7 @@ export const smartReachAPICaller = createNodeDescriptor({
 			key: "storage",
 			label: "Storage Options",
 			defaultCollapsed: true,
-			fields: ["contextKey", "storeLocation", "storeKey"]
+			fields: ["storeLocation", "storeKey"]
 		}
 	],
 	form: [
@@ -119,7 +112,8 @@ export const smartReachAPICaller = createNodeDescriptor({
 	},
 	function: async ({ cognigy, config }: INodeFunctionBaseParams) => {
 		const { api, context, input } = cognigy;
-		const { connection, method, endpoint, headers, body, contextKey, storeLocation, storeKey } = config as any;
+		const { connection, method, endpoint, headers, body, storeLocation, storeKey } = config as any;
+		const contextKey = "smartreach";
 
 		try {
 			// Get session token from context

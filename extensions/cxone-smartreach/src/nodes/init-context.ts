@@ -170,6 +170,12 @@ export const initSmartReachContext = createNodeDescriptor({
 
 			api.log("info", "SmartReach context initialized successfully");
 
+			// Route to success child
+			const onSuccessChild = childConfigs.find(child => child.type === "onSuccessInit");
+			if (onSuccessChild) {
+				api.setNextNode(onSuccessChild.id);
+			}
+
 		} catch (error) {
 			api.log("error", `Failed to initialize SmartReach context: ${error.message}`);
 
@@ -184,6 +190,12 @@ export const initSmartReachContext = createNodeDescriptor({
 				(context as any)[contextKey] = errorData;
 			} else {
 				(input as any)[contextKey] = errorData;
+			}
+
+			// Route to error child
+			const onErrorChild = childConfigs.find(child => child.type === "onErrorInit");
+			if (onErrorChild) {
+				api.setNextNode(onErrorChild.id);
 			}
 		}
 	}

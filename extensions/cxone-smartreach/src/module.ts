@@ -10,7 +10,7 @@ import { saveTermCode, onSuccess as saveOnSuccess, onError as saveOnError } from
 import { getTermCodes } from "./nodes/get-termcodes";
 import { docDbReporter } from "./nodes/docdb-reporter";
 import { smartReachAPICaller } from "./nodes/api-caller";
-import { endCall } from "./nodes/end-call";
+import { transferCall, onSuccess as transferOnSuccess, onError as transferOnError } from "./nodes/transfer-call";
 
 export default createExtension({
 	nodes: [
@@ -23,7 +23,9 @@ export default createExtension({
 		getTermCodes,
 		docDbReporter,
 		smartReachAPICaller,
-		endCall
+		transferCall,
+		transferOnSuccess,
+		transferOnError
 	],
 	connections: [
 		smartreachConnection

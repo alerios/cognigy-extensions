@@ -18,16 +18,6 @@ export const docDbReporter = createNodeDescriptor({
 			description: "Auto-populate fields from SmartReach context"
 		},
 		{
-			key: "contextKey",
-			label: "Context Key",
-			type: "cognigyText",
-			defaultValue: "smartreach",
-			condition: {
-				key: "useContextData",
-				value: true
-			}
-		},
-		{
 			key: "docDbEndpoint",
 			label: "DocDb Endpoint URL",
 			type: "cognigyText",
@@ -172,7 +162,7 @@ export const docDbReporter = createNodeDescriptor({
 			key: "context",
 			label: "Context Settings",
 			defaultCollapsed: false,
-			fields: ["useContextData", "contextKey"]
+			fields: ["useContextData"]
 		},
 		{
 			key: "required",
@@ -211,6 +201,7 @@ export const docDbReporter = createNodeDescriptor({
 	},
 	function: async ({ cognigy, config }: INodeFunctionBaseParams) => {
 		const { api, context } = cognigy;
+		const contextKey = "smartreach";
 		const {
 			docDbEndpoint,
 			docDbToken,
