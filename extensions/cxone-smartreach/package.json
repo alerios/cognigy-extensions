@@ -1,13 +1,12 @@
 {
   "name": "cxone-smartreach",
-  "version": "0.0.17",
+  "version": "0.1.1",
   "description": "Cognigy Extension for NiCE CXone SmartReach integration",
   "main": "build/module.js",
   "author": "NiCE CXone SmartReach",
-  "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Cognigy/Extensions"
+    "url": "https://github.com/nice-cxone/cxone-smartreach-cognigy-extension"
   },
   "keywords": [
     "nice",
@@ -16,10 +15,10 @@
     "aiva",
     "outbound",
     "voice"
-],
+  ],
   "scripts": {
     "transpile": "tsc",
-    "lint": "tslint -c tslint.json 'src/**/*.ts'",
+    "lint": "eslint 'src/**/*.ts'",
     "zip": "tar cfz cxone-smartreach.tar.gz build/* package.json package-lock.json README.md icon.png",
     "build": "npm run transpile && npm run lint && npm run zip"
   },
@@ -27,8 +26,10 @@
     "@cognigy/extension-tools": "^0.16.6"
   },
   "devDependencies": {
-    "@types/node": "^13.13.52",
-    "tslint": "^6.1.3",
+    "@types/node": "^20.x.x",
+    "@typescript-eslint/eslint-plugin": "^8.56.0",
+    "@typescript-eslint/parser": "^8.56.0",
+    "eslint": "^10.0.1",
     "typescript": "^5.9.2"
   }
 }

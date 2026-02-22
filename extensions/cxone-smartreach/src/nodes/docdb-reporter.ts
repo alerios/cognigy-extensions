@@ -11,13 +11,6 @@ export const docDbReporter = createNodeDescriptor({
 	summary: "Send conversation details to LiveVox DocDb API",
 	fields: [
 		{
-			key: "useContextData",
-			label: "Use Context Data",
-			type: "toggle",
-			defaultValue: true,
-			description: "Auto-populate fields from SmartReach context"
-		},
-		{
 			key: "docDbEndpoint",
 			label: "DocDb Endpoint URL",
 			type: "cognigyText",
@@ -45,32 +38,27 @@ export const docDbReporter = createNodeDescriptor({
 			}
 		},
 		{
-			key: "dnis",
-			label: "DNIS",
-			type: "cognigyText",
-			defaultValue: "{{context.smartreach.dnis}}",
-			params: {
-				required: true
-			}
-		},
-		{
-			key: "transactionId",
-			label: "Transaction ID",
-			type: "cognigyText",
-			defaultValue: "{{context.smartreach.transactionId}}",
-			description: "Leave empty to use -1 (fulfillmentCounter)"
-		},
-		{
-			key: "callerAuthenticated",
-			label: "Caller Authenticated",
+			key: "resultCanBeArray",
+			label: "Result Can Be Array",
 			type: "select",
-			defaultValue: "False",
+			defaultValue: "false",
 			params: {
+				required: true,
 				options: [
-					{ label: "True", value: "True" },
-					{ label: "False", value: "False" }
+					{ label: "true", value: "true" },
+					{ label: "false", value: "false" }
 				]
 			}
+		},
+		{
+			key: "orderList",
+			label: "Order List",
+			type: "cognigyText",
+			defaultValue: "-1",
+			params: {
+				required: true
+			},
+			description: "Disposition/order code (e.g., -1)"
 		},
 		{
 			key: "accountNumber",
@@ -79,76 +67,11 @@ export const docDbReporter = createNodeDescriptor({
 			defaultValue: "{{context.smartreach.screenPop.accountNumber}}"
 		},
 		{
-			key: "language",
-			label: "Language",
+			key: "customVariables",
+			label: "Custom Variables (JSON)",
 			type: "cognigyText",
-			defaultValue: "English"
-		},
-		{
-			key: "intentCat1",
-			label: "Intent Category 1",
-			type: "cognigyText",
-			defaultValue: ""
-		},
-		{
-			key: "intentCat2",
-			label: "Intent Category 2",
-			type: "cognigyText",
-			defaultValue: ""
-		},
-		{
-			key: "escalationReason",
-			label: "Escalation Reason",
-			type: "cognigyText",
-			defaultValue: ""
-		},
-		{
-			key: "terminationId",
-			label: "Termination ID",
-			type: "cognigyText",
-			defaultValue: ""
-		},
-		{
-			key: "conversationId",
-			label: "Conversation ID",
-			type: "cognigyText",
-			defaultValue: "{{context.sessionId}}"
-		},
-		{
-			key: "paymentMade",
-			label: "Payment Made",
-			type: "select",
-			defaultValue: "False",
-			params: {
-				options: [
-					{ label: "True", value: "True" },
-					{ label: "False", value: "False" }
-				]
-			}
-		},
-		{
-			key: "disclosureProvided",
-			label: "Disclosure Provided",
-			type: "select",
-			defaultValue: "True",
-			params: {
-				options: [
-					{ label: "True", value: "True" },
-					{ label: "False", value: "False" }
-				]
-			}
-		},
-		{
-			key: "listOfIntents",
-			label: "List of Intents",
-			type: "cognigyText",
-			defaultValue: ""
-		},
-		{
-			key: "pendingStatus",
-			label: "Pending Status",
-			type: "cognigyText",
-			defaultValue: "P"
+			defaultValue: "{}",
+			description: "Additional JSON object with custom variables to include in the request body"
 		}
 	],
 	sections: [
@@ -159,101 +82,88 @@ export const docDbReporter = createNodeDescriptor({
 			fields: ["docDbEndpoint", "docDbToken"]
 		},
 		{
-			key: "context",
-			label: "Context Settings",
-			defaultCollapsed: false,
-			fields: ["useContextData"]
-		},
-		{
 			key: "required",
 			label: "Required Fields",
 			defaultCollapsed: false,
-			fields: ["ani", "dnis", "transactionId"]
+			fields: ["ani", "resultCanBeArray", "orderList"]
 		},
 		{
-			key: "details",
-			label: "Call Details",
-			defaultCollapsed: true,
+			key: "optional",
+			label: "Optional Fields",
+			defaultCollapsed: false,
 			fields: [
-				"callerAuthenticated",
 				"accountNumber",
-				"language",
-				"intentCat1",
-				"intentCat2",
-				"escalationReason",
-				"terminationId",
-				"conversationId",
-				"paymentMade",
-				"disclosureProvided",
-				"listOfIntents",
-				"pendingStatus"
+				"customVariables"
 			]
 		}
 	],
 	form: [
 		{ type: "section", key: "connection" },
-		{ type: "section", key: "context" },
 		{ type: "section", key: "required" },
-		{ type: "section", key: "details" }
+		{ type: "section", key: "optional" }
 	],
 	appearance: {
 		color: "#0077C8"
 	},
-	function: async ({ cognigy, config }: INodeFunctionBaseParams) => {
+	function: async ({ cognigy, config, childConfigs }: INodeFunctionBaseParams) => {
 		const { api, context } = cognigy;
-		const contextKey = "smartreach";
 		const {
 			docDbEndpoint,
 			docDbToken,
 			ani,
-			dnis,
-			transactionId,
-			callerAuthenticated,
+			resultCanBeArray,
+			orderList,
 			accountNumber,
-			language,
-			intentCat1,
-			intentCat2,
-			escalationReason,
-			terminationId,
-			conversationId,
-			paymentMade,
-			disclosureProvided,
-			listOfIntents,
-			pendingStatus
+			customVariables
 		} = config as any;
 
 		try {
+			let customVars = {};
+			try {
+				if (customVariables && typeof customVariables === "string") {
+					customVars = JSON.parse(customVariables);
+				} else if (customVariables && typeof customVariables === "object") {
+					customVars = customVariables;
+				}
+			} catch (parseError) {
+				api.log("warn", `[DOCDB] Failed to parse custom variables: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+			}
+
 			const body = {
+				...customVars,
 				ANI: ani,
-				DNIS: dnis,
-				transactionID: transactionId || "-1",
-				fulfillmentCounter: -1,
-				CallerAuthenticated: callerAuthenticated,
-				AccountNumber: accountNumber,
-				Language: language,
-				IntentCat1: intentCat1,
-				IntentCat2: intentCat2,
-				EscalationReason: escalationReason,
-				TerminationId: terminationId,
-				ConversationID: conversationId,
-				PaymentMade: paymentMade,
-				DisclosureProvided: disclosureProvided,
-				ListOfIntents: listOfIntents,
-				PendingStatus: pendingStatus
+				resultCanBeArray: resultCanBeArray,
+				orderList: orderList,
+				account: accountNumber,
 			};
 
-			api.log("info", `[DOCDB] Sending conversation details to DocDb for ANI: ${ani}`);
-			api.log("info", `[DOCDB] Transaction ID: ${transactionId}, DNIS: ${dnis}`);
-			api.log("info", `[DOCDB] Request body: ${JSON.stringify(body)}`);
+			// Log only operation type and order, not the full request with ANI/account details
+			api.log("info", `[DOCDB] Sending conversation details to DocDb (orderList=${orderList})`);
 
-			const response = await fetch(docDbEndpoint, {
-				method: "POST",
-				headers: {
-					"GET-TOKEN": docDbToken,
-					"Content-Type": "application/json"
-				},
-				body: JSON.stringify(body)
-			});
+			const controller = new AbortController();
+			const DOCDB_REQUEST_TIMEOUT_MS = 10000; // 10 seconds timeout to avoid hanging the flow
+			const timeoutId = setTimeout(() => {
+				api.log("error", "[DOCDB] DocDb request timed out, aborting fetch");
+				controller.abort();
+			}, DOCDB_REQUEST_TIMEOUT_MS);
+
+			let response: Response;
+			try {
+				response = await fetch(docDbEndpoint, {
+					method: "POST",
+					headers: {
+						"GET-TOKEN": docDbToken,
+						"Content-Type": "application/json"
+					},
+					body: JSON.stringify(body),
+					signal: controller.signal
+				});
+				clearTimeout(timeoutId);
+			} catch (fetchError) {
+				clearTimeout(timeoutId);
+				api.log("error", `[DOCDB] Fetch request failed: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`);
+				throw fetchError;
+			}
 
 			api.log("info", `[DOCDB] Response status: ${response.status}`);
 
@@ -265,21 +175,84 @@ export const docDbReporter = createNodeDescriptor({
 
 			api.log("info", "[DOCDB] Conversation details sent to DocDb successfully");
 
-			(context as any).smartreach_docdb_sent = {
-				success: true,
-				timestamp: new Date().toISOString()
+			// Store success result in nested structure, preserving existing context
+			(context as any).smartreach = {
+				...(context as any).smartreach,
+				docdb: {
+					success: true,
+					timestamp: new Date().toISOString()
+				}
 			};
+
+			// Route to success child
+			const onSuccessChild = childConfigs.find(child => child.type === "onSuccessDocDb");
+			if (onSuccessChild) {
+				api.setNextNode(onSuccessChild.id);
+			}
 
 		} catch (error) {
-			api.log("error", `Failed to send to DocDb: ${error.message}`);
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			api.log("error", `Failed to send to DocDb: ${errorMessage}`);
 
-			(context as any).smartreach_docdb_error = {
-				success: false,
-				error: error.message,
-				timestamp: new Date().toISOString()
+			// Store error in nested structure, preserving existing context
+			(context as any).smartreach = {
+				...(context as any).smartreach,
+				docdb: {
+					success: false,
+					error: errorMessage,
+					timestamp: new Date().toISOString()
+				}
 			};
 
-			throw error;
+			// Route to error child (DocDb reporting is non-critical, so we route instead of throwing)
+			const onErrorChild = childConfigs.find(child => child.type === "onErrorDocDb");
+			if (onErrorChild) {
+				api.setNextNode(onErrorChild.id);
+			}
 		}
+	}
+});
+
+export const onSuccess = createNodeDescriptor({
+	type: "onSuccessDocDb",
+	parentType: "docDbReporter",
+	defaultLabel: "On Success",
+	constraints: {
+		editable: false,
+		deletable: false,
+		creatable: false,
+		movable: false,
+		placement: {
+			predecessor: {
+				whitelist: []
+			}
+		}
+	},
+	appearance: {
+		color: "#61d188",
+		textColor: "white",
+		variant: "mini"
+	}
+});
+
+export const onError = createNodeDescriptor({
+	type: "onErrorDocDb",
+	parentType: "docDbReporter",
+	defaultLabel: "On Error",
+	constraints: {
+		editable: false,
+		deletable: false,
+		creatable: false,
+		movable: false,
+		placement: {
+			predecessor: {
+				whitelist: []
+			}
+		}
+	},
+	appearance: {
+		color: "#cf142b",
+		textColor: "white",
+		variant: "mini"
 	}
 });

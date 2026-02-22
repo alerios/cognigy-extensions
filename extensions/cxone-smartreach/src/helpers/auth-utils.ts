@@ -3,19 +3,82 @@
  * Author: Alejandro Rios <alejandro.rios@nice.com>
  */
 
-import * as crypto from "crypto";
-
 interface ISessionData {
 	sessionId: string;
 	timestamp: number;
-	encryptedToken: string;
 }
 
 const SESSION_CACHE_KEY = "smartreach_session_cache";
 const SESSION_EXPIRY_MS = 7200000; // 2 hours in milliseconds
-const ENCRYPTION_KEY = "cognigy-smartreach-session-key-32b"; // Should be 32 bytes for AES-256
-const IV_LENGTH = 16;
 const FETCH_TIMEOUT_MS = 30000; // 30 second timeout for API calls
+
+// Sensitive field patterns to redact from logs
+const SENSITIVE_FIELDS = [
+	'password',
+	'token',
+	'accessToken',
+	'sessionId',
+	'LV-Access',
+	'LV-Session',
+	'account',
+	'accountNumber',
+	'paymentAmt',
+	'agentPassword'
+];
+
+/**
+ * Redact sensitive fields from an object for logging
+ */
+function redactSensitiveData(obj: any, maxLength: number = 500): string {
+	if (!obj) return String(obj);
+
+	// If input is a string, attempt to parse JSON; otherwise, just length-limit it
+	let source: any = obj;
+	if (typeof obj === 'string') {
+		const trimmed = obj.trim();
+
+		// Looks like JSON, try to parse so we can actually redact fields
+		if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+			try {
+				source = JSON.parse(trimmed);
+			} catch {
+				// Not valid JSON, return a length-limited raw string without claiming redaction
+				return obj.length > maxLength ? obj.substring(0, maxLength) + '...' : obj;
+			}
+		} else {
+			// Plain string: return a length-limited version without pretending to redact
+			return obj.length > maxLength ? obj.substring(0, maxLength) + '...' : obj;
+		}
+	}
+
+	try {
+		const redacted = JSON.parse(JSON.stringify(source));
+
+		const redactRecursive = (item: any): any => {
+			if (typeof item === 'object' && item !== null) {
+				for (const key in item) {
+					const lowerKey = key.toLowerCase();
+					const isSensitive = SENSITIVE_FIELDS.some(field =>
+						lowerKey.includes(field.toLowerCase())
+					);
+
+					if (isSensitive) {
+						item[key] = "***REDACTED***";
+					} else if (typeof item[key] === 'object') {
+						redactRecursive(item[key]);
+					}
+				}
+			}
+			return item;
+		};
+
+		redactRecursive(redacted);
+		const result = JSON.stringify(redacted);
+		return result.length > maxLength ? result.substring(0, maxLength) + '...' : result;
+	} catch {
+		return '[Unable to parse for redaction]';
+	}
+}
 
 /**
  * Helper to add timeout to fetch requests
@@ -41,31 +104,10 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
 }
 
 /**
- * Encrypt session token for secure storage
- */
-function encryptToken(token: string): string {
-	const iv = crypto.randomBytes(IV_LENGTH);
-	const cipher = crypto.createCipheriv("aes-256-cbc", Buffer.from(ENCRYPTION_KEY), iv);
-	let encrypted = cipher.update(token, "utf8", "hex");
-	encrypted += cipher.final("hex");
-	return iv.toString("hex") + ":" + encrypted;
-}
-
-/**
- * Decrypt stored session token
- */
-function decryptToken(encryptedData: string): string {
-	const parts = encryptedData.split(":");
-	const iv = Buffer.from(parts[0], "hex");
-	const encryptedText = parts[1];
-	const decipher = crypto.createDecipheriv("aes-256-cbc", Buffer.from(ENCRYPTION_KEY), iv);
-	let decrypted = decipher.update(encryptedText, "hex", "utf8");
-	decrypted += decipher.final("utf8");
-	return decrypted;
-}
-
-/**
  * Get cached session from context if still valid
+ * Note: This function validates session age locally but does not verify the session is still
+ * valid on the LiveVox server side. Cached tokens could be expired or revoked server-side.
+ * Consider handling 401/403 responses in consuming code by clearing cache and re-authenticating.
  */
 export function getCachedSession(api: any): string | null {
 	try {
@@ -79,12 +121,12 @@ export function getCachedSession(api: any): string | null {
 
 		// Check if session is still valid (within 2-hour window)
 		if (age < SESSION_EXPIRY_MS) {
-			return decryptToken(cachedData.encryptedToken);
+			return cachedData.sessionId;
 		}
 
 		return null;
 	} catch (error) {
-		api.log("warn", `Error retrieving cached session: ${error.message}`);
+		api.log("warn", `Error retrieving cached session: ${error instanceof Error ? error.message : String(error)}`);
 		return null;
 	}
 }
@@ -94,16 +136,14 @@ export function getCachedSession(api: any): string | null {
  */
 export function cacheSession(api: any, sessionId: string): void {
 	try {
-		const encryptedToken = encryptToken(sessionId);
 		const sessionData: ISessionData = {
-			sessionId: sessionId.substring(0, 8) + "...", // Store partial ID for reference
+			sessionId,
 			timestamp: Date.now(),
-			encryptedToken
 		};
 
 		api.addToContext(SESSION_CACHE_KEY, sessionData, "simple");
 	} catch (error) {
-		api.log("warn", `Error caching session: ${error.message}`);
+		api.log("warn", `Error caching session: ${error instanceof Error ? error.message : String(error)}`);
 	}
 }
 
@@ -112,17 +152,17 @@ export function cacheSession(api: any, sessionId: string): void {
  */
 export async function loginAndGetSession(
 	api: any,
-	baseUrl: string,
+	apiBaseUrl: string,
 	accessToken: string,
 	clientName: string,
 	userName: string,
 	password: string
 ): Promise<string> {
-	const endpoint = `${baseUrl}/session/login`;
+	const endpoint = `${apiBaseUrl}/session/login`;
 
 	try {
 		api.log("info", `[LOGIN_START] About to log details`);
-		api.log("info", `[LOGIN_START] baseUrl type: ${typeof baseUrl}, value: ${baseUrl}`);
+		api.log("info", `[LOGIN_START] apiBaseUrl type: ${typeof apiBaseUrl}, value: ${apiBaseUrl}`);
 		api.log("info", `[LOGIN_START] endpoint: ${endpoint}`);
 
 		const requestBody = {
@@ -132,8 +172,12 @@ export async function loginAndGetSession(
 			agent: "true"
 		};
 
-		const requestBodyJson = JSON.stringify(requestBody);
-		api.log("info", `[LOGIN_START] Body: ${requestBodyJson}`);
+		// Redact sensitive fields (e.g., password) before logging the request body
+		const redactedRequestBodyForLog = {
+			...requestBody,
+			password: "***REDACTED***"
+		};
+		api.log("info", `[LOGIN_START] Body: ${JSON.stringify(redactedRequestBodyForLog)}`);
 
 		const headers: Record<string, string> = {
 			"LV-Access": accessToken,
@@ -146,7 +190,7 @@ export async function loginAndGetSession(
 		const response = await fetchWithTimeout(endpoint, {
 			method: "POST",
 			headers,
-			body: requestBodyJson
+			body: JSON.stringify(requestBody)
 		}, FETCH_TIMEOUT_MS, api);
 
 		api.log("info", `[LOGIN_RESPONSE] Got response with status: ${response.status}`);
@@ -156,14 +200,16 @@ export async function loginAndGetSession(
 			const errorDetails = errorText || "(empty response body)";
 
 			api.log("info", `[LOGIN] Error response - Status: ${response.status}`);
-			api.log("info", `[LOGIN] Error body: ${errorDetails}`);
+			// Redact potentially sensitive error details
+			api.log("info", `[LOGIN] Error body (redacted): ${redactSensitiveData(errorDetails, 200)}`);
 
 			// Try to get all response headers
 			const headersList: any = {};
 			response.headers.forEach((value, key) => {
 				headersList[key] = value;
 			});
-			api.log("info", `[LOGIN] Response headers: ${JSON.stringify(headersList)}`);
+			// Redact sensitive headers
+			api.log("info", `[LOGIN] Response headers (redacted): ${redactSensitiveData(headersList)}`);
 
 			throw new Error(`Login API returned ${response.status}: ${errorDetails}`);
 		}
@@ -181,17 +227,19 @@ export async function loginAndGetSession(
 		const fullError = error instanceof Error ? error.stack : "";
 
 		// Run connectivity check only if there's an error
-		api.log("info", `[CONNECTIVITY_CHECK] Login failed, checking connectivity to AWS...`);
+		// Note: This diagnostic check may fail for network reasons unrelated to the login failure
+		// and is logged at debug level to avoid confusion with the actual error
+		api.log("debug", `[CONNECTIVITY_CHECK] Login failed, checking connectivity to AWS...`);
 		try {
 			const ipResponse = await fetchWithTimeout("https://checkip.amazonaws.com/", {
 				method: "GET"
 			}, 5000, api);
 			const ipText = await ipResponse.text();
 			const myIp = ipText.trim();
-			api.log("info", `[CONNECTIVITY_CHECK] Successfully reached checkip.amazonaws.com`);
-			api.log("info", `[CONNECTIVITY_CHECK] Extension IP: ${myIp}`);
+			api.log("debug", `[CONNECTIVITY_CHECK] Successfully reached checkip.amazonaws.com`);
+			api.log("debug", `[CONNECTIVITY_CHECK] Extension IP: ${myIp}`);
 		} catch (ipCheckError) {
-			api.log("warn", `[CONNECTIVITY_CHECK] Could not determine IP: ${ipCheckError instanceof Error ? ipCheckError.message : String(ipCheckError)}`);
+			api.log("debug", `[CONNECTIVITY_CHECK] Could not determine IP: ${ipCheckError instanceof Error ? ipCheckError.message : String(ipCheckError)}`);
 		}
 
 		// Log more diagnostic info for network errors
@@ -218,7 +266,7 @@ export async function loginAndGetSession(
  */
 export async function getSessionToken(
 	api: any,
-	baseUrl: string,
+	apiBaseUrl: string,
 	accessToken: string,
 	clientName: string,
 	userName: string,
@@ -233,13 +281,16 @@ export async function getSessionToken(
 
 	// No valid cached session, login and cache new one
 	api.log("debug", "No valid cached session, logging in...");
-	const sessionId = await loginAndGetSession(api, baseUrl, accessToken, clientName, userName, password);
+	const sessionId = await loginAndGetSession(api, apiBaseUrl, accessToken, clientName, userName, password);
 	cacheSession(api, sessionId);
 	return sessionId;
 }
 
 /**
  * Make authenticated API call to LiveVox
+ * Note: This function does not implement automatic token refresh on 401/403 errors.
+ * If a cached token expires mid-conversation, subsequent API calls will fail.
+ * Consider implementing retry logic with session refresh for production use.
  */
 export async function makeAuthenticatedRequest(
 	api: any,
@@ -266,6 +317,8 @@ export async function makeAuthenticatedRequest(
 
 		if (!response.ok) {
 			const errorText = await response.text();
+			// Note: 401/403 errors could indicate expired session - consider implementing
+			// automatic retry with session refresh for improved reliability
 			throw new Error(`LiveVox API returned ${response.status}: ${errorText}`);
 		}
 

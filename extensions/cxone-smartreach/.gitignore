@@ -1,0 +1,14 @@
+/**/credentials.json
+/**/token.json
+build
+node_modules
+src/shared
+.env
+*.tar.gz
+!cxone-smartreach.tar.gz
+coverage/
+*.zip
+.idea
+*.bat
+/**/.DS_Store
+.history

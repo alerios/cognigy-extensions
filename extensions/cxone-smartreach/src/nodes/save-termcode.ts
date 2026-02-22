@@ -21,13 +21,6 @@ export const saveTermCode = createNodeDescriptor({
 			}
 		},
 		{
-			key: "useContextData",
-			label: "Use Context Data",
-			type: "toggle",
-			defaultValue: true,
-			description: "Use call data from SmartReach context (set by Init Context node)"
-		},
-		{
 			key: "termCodeId",
 			label: "Term Code ID",
 			type: "cognigyText",
@@ -41,7 +34,10 @@ export const saveTermCode = createNodeDescriptor({
 			label: "Phone Dialed",
 			type: "cognigyText",
 			defaultValue: "{{context.smartreach.screenPop.phoneDialed}}",
-			description: "Customer phone number"
+			params: {
+				required: false
+			},
+			description: "Customer phone number (optional)"
 		},
 		{
 			key: "moveAgentToNotReady",
@@ -74,12 +70,6 @@ export const saveTermCode = createNodeDescriptor({
 	],
 	sections: [
 		{
-			key: "context",
-			label: "Context Settings",
-			defaultCollapsed: false,
-			fields: ["useContextData"]
-		},
-		{
 			key: "required",
 			label: "Required Fields",
 			defaultCollapsed: false,
@@ -94,7 +84,6 @@ export const saveTermCode = createNodeDescriptor({
 	],
 	form: [
 		{ type: "field", key: "connection" },
-		{ type: "section", key: "context" },
 		{ type: "section", key: "required" },
 		{ type: "section", key: "optional" }
 	],
@@ -108,7 +97,7 @@ export const saveTermCode = createNodeDescriptor({
 		]
 	},
 	function: async ({ cognigy, config, childConfigs }: INodeFunctionBaseParams) => {
-		const { api, input, context } = cognigy;
+		const { api, context } = cognigy;
 		const {
 			connection,
 			termCodeId,
@@ -116,43 +105,24 @@ export const saveTermCode = createNodeDescriptor({
 			account,
 			moveAgentToNotReady,
 			paymentAmt,
-			agentEnteredAccount,
-			useContextData
+			agentEnteredAccount
 		} = config as any;
 		const contextKey = "smartreach";
 
 		try {
-			let callTransactionId = "";
-			let callSessionId = "";
-			let lvSessionToken = "";
+			// Get data from context
+			const smartreachContext = (context as any)?.[contextKey];
 
-			if (useContextData) {
-				// Get data from context
-				const smartreachContext = (context as any)?.[contextKey];
+			if (!smartreachContext || !smartreachContext.initialized) {
+				throw new Error(`SmartReach context not found at key '${contextKey}'. Run Init Context node first.`);
+			}
 
-				if (!smartreachContext || !smartreachContext.initialized) {
-					throw new Error(`SmartReach context not found at key '${contextKey}'. Run Init Context node first.`);
-				}
+			const callTransactionId = smartreachContext.transactionId;
+			const callSessionId = smartreachContext.sessionId;
+			const lvSessionToken = smartreachContext.lvSessionToken;
 
-				callTransactionId = smartreachContext.transactionId;
-				callSessionId = smartreachContext.sessionId;
-				lvSessionToken = smartreachContext.lvSessionToken;
-
-				if (!callTransactionId || !callSessionId) {
-					throw new Error("Transaction ID or Session ID missing from context");
-				}
-			} else {
-				// Try to get from SIP headers if not using context
-				const sipHeaders = (input?.data as any)?.payload?.sip?.headers || {};
-				callTransactionId = sipHeaders['lv-transaction-id'] || sipHeaders['x-transaction-id'] || "";
-				callSessionId = sipHeaders['session-id'] || sipHeaders['Session-ID'] || "";
-
-				if (!callTransactionId || !callSessionId) {
-					throw new Error("Transaction ID or Session ID not found in SIP headers");
-				}
-
-				// Need to authenticate if not using context
-				throw new Error("Authentication required - please enable 'Use Context Data' or run Init Context node first");
+			if (!callTransactionId || !callSessionId) {
+				throw new Error("Transaction ID or Session ID missing from context");
 			}
 
 			// Build request body
@@ -169,20 +139,31 @@ export const saveTermCode = createNodeDescriptor({
 			if (paymentAmt) body.paymentAmt = paymentAmt;
 			if (agentEnteredAccount) body.agentEnteredAccount = agentEnteredAccount;
 
+			// Log operation without exposing PII
 			api.log("info", `[SAVE_TERMCODE] Saving term code ${termCodeId} for transaction ${callTransactionId}`);
-			api.log("info", `[SAVE_TERMCODE] Request body: ${JSON.stringify(body)}`);
+			api.log("debug", `[SAVE_TERMCODE] Request includes ${Object.keys(body).length} fields`);
 
 			// Make API call
-			const endpoint = `${connection.baseUrl}/callControl/agent/call/termCode`;
-			await makeAuthenticatedRequest(api, lvSessionToken, endpoint, "PUT", body);
+		const endpoint = `${connection.apiBaseUrl}/callControl/agent/call/termCode`;
+			await makeAuthenticatedRequest(
+				api,
+				lvSessionToken,
+				endpoint,
+				"PUT",
+				body
+			);
+
 
 			api.log("info", `[SAVE_TERMCODE] Term code ${termCodeId} saved successfully`);
 
-			// Store success result
-			(context as any).smartreach_termcode_saved = {
-				success: true,
-				termCodeId,
-				timestamp: new Date().toISOString()
+			// Store success result in nested structure, preserving existing context
+			(context as any).smartreach = {
+				...(context as any).smartreach,
+				termcode: {
+					success: true,
+					termCodeId,
+					timestamp: new Date().toISOString()
+				}
 			};
 
 			// Route to success child
@@ -192,13 +173,17 @@ export const saveTermCode = createNodeDescriptor({
 			}
 
 		} catch (error) {
-			api.log("error", `Failed to save term code: ${error.message}`);
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			api.log("error", `Failed to save term code: ${errorMessage}`);
 
-			// Store error
-			(context as any).smartreach_termcode_error = {
-				success: false,
-				error: error.message,
-				timestamp: new Date().toISOString()
+			// Store error in nested structure, preserving existing context
+			(context as any).smartreach = {
+				...(context as any).smartreach,
+				termcode: {
+					success: false,
+					error: errorMessage,
+					timestamp: new Date().toISOString()
+				}
 			};
 
 			// Route to error child

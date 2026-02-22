@@ -10,6 +10,9 @@ export const transferCall = createNodeDescriptor({
 	type: "transferCall",
 	defaultLabel: "Transfer Call",
 	summary: "Transfer the current call to a supervisor or another number",
+	// Note: The LiveVox API endpoint is '/callControl/agent/conference/manual' and accepts
+	// a 'supervisorNumber' field. Despite the naming, this endpoint can be used to transfer
+	// calls to any number, not just supervisors. The API performs a manual conference/transfer.
 	fields: [
 		{
 			key: "connection",
@@ -22,10 +25,13 @@ export const transferCall = createNodeDescriptor({
 		},
 		{
 			key: "supervisorNumber",
-			label: "Supervisor Number",
+			label: "Transfer To Number",
 			type: "cognigyText",
 			defaultValue: "",
-			description: "Phone number to transfer the call to"
+			description: "Phone number to transfer the call to",
+			params: {
+				required: true
+			}
 		},
 		{
 			key: "putCallOnHold",
@@ -78,26 +84,44 @@ export const transferCall = createNodeDescriptor({
 
 			const lvSessionToken = smartreachContext.lvSessionToken;
 
-			// Build transfer request
-			api.log("info", `[TRANSFER_CALL] Transferring call to ${supervisorNumber}`);
+			// Log only operation type and transaction, not the phone number being transferred to
+			api.log("info", `[TRANSFER_CALL] Initiating call transfer`);
 
+			// Note: The LiveVox API expects string booleans, not native JSON booleans
+			// Example request format:
+			// POST /callControl/agent/conference/manual
+			// {
+			//   "supervisorNumber": "4158395494",
+			//   "putCallOnHold": "true",
+			//   "secureTransfer": "false"
+			// }
 			const transferBody = {
 				supervisorNumber,
 				putCallOnHold: putCallOnHold.toString(),
 				secureTransfer: secureTransfer.toString()
 			};
 
-			api.log("info", `[TRANSFER_CALL] Transfer body: ${JSON.stringify(transferBody)}`);
+			api.log("debug", `[TRANSFER_CALL] Transfer options - putOnHold: ${putCallOnHold}, secureTransfer: ${secureTransfer}`);
 
-			const transferEndpoint = `${connection.baseUrl}/callControl/agent/conference/manual`;
-			await makeAuthenticatedRequest(api, lvSessionToken, transferEndpoint, "POST", transferBody);
+			const transferEndpoint = `${connection.apiBaseUrl}/callControl/agent/conference/manual`;
+			await makeAuthenticatedRequest(
+				api,
+				lvSessionToken,
+				transferEndpoint,
+				"POST",
+				transferBody
+			);
 
 			api.log("info", "[TRANSFER_CALL] Call transferred successfully");
 
-			(context as any).smartreach_call_transferred = {
-				success: true,
-				supervisorNumber,
-				timestamp: new Date().toISOString()
+			// Store success result in nested structure, preserving existing context
+			(context as any).smartreach = {
+				...(context as any).smartreach,
+				callTransfer: {
+					success: true,
+					supervisorNumber,
+					timestamp: new Date().toISOString()
+				}
 			};
 
 			// Route to success child
@@ -107,7 +131,18 @@ export const transferCall = createNodeDescriptor({
 			}
 
 		} catch (error) {
-			api.log("error", `Failed to transfer call: ${error.message}`);
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			api.log("error", `Failed to transfer call: ${errorMessage}`);
+
+			// Store error information in nested structure, preserving existing context
+			(context as any).smartreach = {
+				...(context as any).smartreach,
+				callTransfer: {
+					success: false,
+					error: errorMessage,
+					timestamp: new Date().toISOString()
+				}
+			};
 
 			// Route to error child
 			const onErrorChild = childConfigs.find(child => child.type === "onErrorTransfer");

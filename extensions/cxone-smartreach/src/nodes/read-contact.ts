@@ -1,15 +1,15 @@
 /**
- * Get Term Codes Node
+ * Read Contact Node
  * Author: Alejandro Rios <alejandro.rios@nice.com>
  */
 
 import { createNodeDescriptor, INodeFunctionBaseParams } from "@cognigy/extension-tools";
 import { makeAuthenticatedRequest } from "../helpers/auth-utils";
 
-export const getTermCodes = createNodeDescriptor({
-	type: "getTermCodes",
-	defaultLabel: "Get Term Codes",
-	summary: "Retrieve available term codes for a service",
+export const readContact = createNodeDescriptor({
+	type: "readContact",
+	defaultLabel: "Read Contact",
+	summary: "Retrieve contact details from SmartReach",
 	fields: [
 		{
 			key: "connection",
@@ -21,13 +21,13 @@ export const getTermCodes = createNodeDescriptor({
 			}
 		},
 		{
-			key: "serviceId",
-			label: "Service ID",
+			key: "account",
+			label: "Account Number",
 			type: "cognigyText",
 			params: {
 				required: true
 			},
-			description: "The service ID to get term codes for"
+			description: "The account of the contact to read"
 		},
 		{
 			key: "storeLocation",
@@ -52,7 +52,7 @@ export const getTermCodes = createNodeDescriptor({
 			key: "storeKey",
 			label: "Store Key",
 			type: "cognigyText",
-			defaultValue: "smartreach_termcodes",
+			defaultValue: "smartreach_contact",
 			params: {
 				required: true
 			}
@@ -68,7 +68,7 @@ export const getTermCodes = createNodeDescriptor({
 	],
 	form: [
 		{ type: "field", key: "connection" },
-		{ type: "field", key: "serviceId" },
+		{ type: "field", key: "account" },
 		{ type: "section", key: "storage" }
 	],
 	appearance: {
@@ -76,7 +76,7 @@ export const getTermCodes = createNodeDescriptor({
 	},
 	function: async ({ cognigy, config, childConfigs }: INodeFunctionBaseParams) => {
 		const { api, context, input } = cognigy;
-		const { connection, serviceId, storeLocation, storeKey } = config as any;
+		const { connection, account, storeLocation, storeKey } = config as any;
 		const contextKey = "smartreach";
 
 		try {
@@ -89,42 +89,65 @@ export const getTermCodes = createNodeDescriptor({
 
 			const lvSessionToken = smartreachContext.lvSessionToken;
 
-			api.log("info", `[GET_TERMCODES] Retrieving term codes for service: ${serviceId}`);
+			api.log("info", `[READ_CONTACT] Retrieving contact for account: ${account}`);
 
 			// Make API call
-			const endpoint = `${connection.apiBaseUrl}/callControl/agent/termCode?serviceId=${encodeURIComponent(serviceId)}`;
+			const endpoint = `${connection.apiBaseUrl}/contact/contacts/${encodeURIComponent(account)}`;
 			const response = await makeAuthenticatedRequest(
 				api,
 				lvSessionToken,
 				endpoint,
-				"GET"
+				"GET",
 			);
 
-			const termCodeCount = response?.length || 0;
-			api.log("info", `[GET_TERMCODES] Retrieved ${termCodeCount} term codes`);
-			if (termCodeCount > 0) {
-				api.log("info", `[GET_TERMCODES] Term codes (first 300 chars): ${JSON.stringify(response).substring(0, 300)}`);
+			// Log success without logging the full contact response (contains PII)
+			if (response?.readContactDetails) {
+				const contactData = response.readContactDetails;
+				const phoneCount = contactData.phone?.length || 0;
+				api.log("info", `[READ_CONTACT] Contact retrieved successfully (${phoneCount} phone numbers)`);
+			} else {
+				api.log("info", `[READ_CONTACT] Contact retrieved successfully`);
 			}
 
-			// Store result
+			// Store result in user-specified location
 			if (storeLocation === "context") {
 				(context as any)[storeKey] = response;
 			} else {
 				(input as any)[storeKey] = response;
 			}
 
+			// Store success result in nested structure, preserving existing context
+			(context as any).smartreach = {
+				...(context as any).smartreach,
+				contact: {
+					success: true,
+					account,
+					timestamp: new Date().toISOString()
+				}
+			};
+
 			// Route to success child
-			const onSuccessChild = childConfigs.find(child => child.type === "onSuccessGetTermCodes");
+			const onSuccessChild = childConfigs.find(child => child.type === "onSuccessReadContact");
 			if (onSuccessChild) {
 				api.setNextNode(onSuccessChild.id);
 			}
 
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			api.log("error", `Failed to get term codes: ${errorMessage}`);
+			api.log("error", `Failed to read contact: ${errorMessage}`);
+
+			// Store error in nested structure, preserving existing context
+			(context as any).smartreach = {
+				...(context as any).smartreach,
+				contact: {
+					success: false,
+					error: errorMessage,
+					timestamp: new Date().toISOString()
+				}
+			};
 
 			// Route to error child
-			const onErrorChild = childConfigs.find(child => child.type === "onErrorGetTermCodes");
+			const onErrorChild = childConfigs.find(child => child.type === "onErrorReadContact");
 			if (onErrorChild) {
 				api.setNextNode(onErrorChild.id);
 			} else {
@@ -136,8 +159,8 @@ export const getTermCodes = createNodeDescriptor({
 });
 
 export const onSuccess = createNodeDescriptor({
-	type: "onSuccessGetTermCodes",
-	parentType: "getTermCodes",
+	type: "onSuccessReadContact",
+	parentType: "readContact",
 	defaultLabel: "On Success",
 	constraints: {
 		editable: false,
@@ -158,8 +181,8 @@ export const onSuccess = createNodeDescriptor({
 });
 
 export const onError = createNodeDescriptor({
-	type: "onErrorGetTermCodes",
-	parentType: "getTermCodes",
+	type: "onErrorReadContact",
+	parentType: "readContact",
 	defaultLabel: "On Error",
 	constraints: {
 		editable: false,

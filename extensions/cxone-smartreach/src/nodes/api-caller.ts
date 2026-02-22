@@ -4,7 +4,6 @@
  */
 
 import { createNodeDescriptor, INodeFunctionBaseParams } from "@cognigy/extension-tools";
-import { makeAuthenticatedRequest } from "../helpers/auth-utils";
 
 export const smartReachAPICaller = createNodeDescriptor({
 	type: "smartReachAPICaller",
@@ -49,15 +48,15 @@ export const smartReachAPICaller = createNodeDescriptor({
 			key: "headers",
 			label: "Additional Headers (JSON)",
 			type: "json",
-			defaultValue: "{}",
-			description: "Additional headers to include (LV-Session is added automatically)"
+			defaultValue: {},
+			description: "Additional headers to include (LV-Session is added automatically). Provide as JSON object."
 		},
 		{
 			key: "body",
 			label: "Request Body (JSON)",
 			type: "json",
-			defaultValue: "{}",
-			description: "Request body for POST/PUT/PATCH requests"
+			defaultValue: {},
+			description: "Request body for POST/PUT/PATCH requests. Provide as JSON object."
 		},
 		{
 			key: "storeLocation",
@@ -110,7 +109,7 @@ export const smartReachAPICaller = createNodeDescriptor({
 	appearance: {
 		color: "#0077C8"
 	},
-	function: async ({ cognigy, config }: INodeFunctionBaseParams) => {
+	function: async ({ cognigy, config, childConfigs }: INodeFunctionBaseParams) => {
 		const { api, context, input } = cognigy;
 		const { connection, method, endpoint, headers, body, storeLocation, storeKey } = config as any;
 		const contextKey = "smartreach";
@@ -125,49 +124,132 @@ export const smartReachAPICaller = createNodeDescriptor({
 
 			const lvSessionToken = smartreachContext.lvSessionToken;
 
-			// Build full URL
-			const fullEndpoint = endpoint.startsWith("http")
-				? endpoint
-				: `${connection.baseUrl}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
+			// Validate and build full URL
+			const rawEndpoint = typeof endpoint === "string" ? endpoint.trim() : "";
+			if (!rawEndpoint) {
+				throw new Error("Endpoint is required and must be a non-empty string.");
+			}
 
+			let fullEndpoint: string;
+
+			// Disallow protocol-relative URLs and validate absolute URLs
+			const isAbsoluteHttpUrl =
+				rawEndpoint.startsWith("http://") || rawEndpoint.startsWith("https://");
+			const isProtocolRelativeUrl = rawEndpoint.startsWith("//");
+
+			if (isProtocolRelativeUrl) {
+				throw new Error("Protocol-relative endpoints (starting with '//') are not allowed.");
+			}
+
+			if (isAbsoluteHttpUrl) {
+				const apiBaseUrl = new URL(connection.apiBaseUrl);
+				const endpointUrl = new URL(rawEndpoint);
+
+				// Ensure the absolute endpoint does not change the origin
+				if (endpointUrl.origin !== apiBaseUrl.origin) {
+					throw new Error("Absolute endpoints must use the same origin as the configured base URL.");
+				}
+
+				if (endpointUrl.pathname.includes("..")) {
+					throw new Error("Endpoint path must not contain '..' segments.");
+				}
+
+				fullEndpoint = rawEndpoint;
+			} else {
+				// Treat as relative path
+				let normalizedPath = rawEndpoint;
+				if (!normalizedPath.startsWith("/")) {
+					normalizedPath = `/${normalizedPath}`;
+				}
+
+				if (normalizedPath.includes("..")) {
+					throw new Error("Endpoint path must not contain '..' segments.");
+				}
+
+				fullEndpoint = `${connection.apiBaseUrl}${normalizedPath}`;
+			}
 			api.log("info", `Making ${method} request to: ${fullEndpoint}`);
 
 			// Parse additional headers
 			let additionalHeaders = {};
+			let headersParseError: Error | null = null;
 			try {
-				if (headers && headers !== "{}") {
-					additionalHeaders = JSON.parse(headers);
+				if (headers) {
+					if (typeof headers === "string") {
+						if (headers !== "{}") {
+							additionalHeaders = JSON.parse(headers);
+						}
+					} else if (typeof headers === "object") {
+						// Already a parsed JSON object; use as-is
+						additionalHeaders = headers;
+					} else {
+						api.log("warn", `Unexpected headers type (${typeof headers}); expected string or object.`);
+					}
 				}
-			} catch (error) {
-				api.log("warn", `Failed to parse headers: ${error.message}`);
+			} catch (error: any) {
+				api.log("warn", `Failed to parse headers: ${error?.message || String(error)}`);
+				headersParseError = error instanceof Error ? error : new Error(error?.message || String(error));
 			}
 
 			// Parse body for POST/PUT/PATCH
 			let requestBody = null;
+			let bodyParseError: Error | null = null;
 			if (["POST", "PUT", "PATCH"].includes(method)) {
 				try {
 					if (body && body !== "{}") {
-						requestBody = JSON.parse(body);
+						if (typeof body === "string") {
+							requestBody = JSON.parse(body);
+						} else if (typeof body === "object") {
+							// Already a parsed JSON object; use as-is
+							requestBody = body;
+						} else {
+							api.log("warn", `Unexpected body type (${typeof body}); expected string or object.`);
+						}
 					}
-				} catch (error) {
-					api.log("warn", `Failed to parse body: ${error.message}`);
+				} catch (error: any) {
+					api.log("warn", `Failed to parse body: ${error?.message || String(error)}`);
+					bodyParseError = error instanceof Error ? error : new Error(error?.message || String(error));
 				}
 			}
 
-			// Make request
+			// If JSON parsing failed for headers or body, store error in context and abort
+			if (headersParseError) {
+				const headersMessage = `SmartReach API Caller JSON parse error - headers: ${headersParseError.message}`;
+
+				// Store detailed error information in context for downstream nodes / users
+				(context as any)[contextKey] = {
+					...((context as any)?.[contextKey] || {}),
+					lastError: headersMessage
+				};
+
+				throw new Error(headersMessage);
+			}
+
+			if (bodyParseError) {
+				const bodyMessage = `SmartReach API Caller JSON parse error - body: ${bodyParseError.message}`;
+
+				// Store detailed error information in context for downstream nodes / users
+				(context as any)[contextKey] = {
+					...((context as any)?.[contextKey] || {}),
+					lastError: bodyMessage
+				};
+
+				throw new Error(bodyMessage);
+			}
 			const fetchOptions: any = {
 				method,
 				headers: {
+					...(additionalHeaders || {}),
 					"LV-Session": lvSessionToken,
 					"Content-Type": "application/json",
-					"Accept": "application/json",
-					...additionalHeaders
+					"Accept": "application/json"
 				}
 			};
 
 			if (requestBody) {
 				fetchOptions.body = JSON.stringify(requestBody);
-				api.log("info", `[API_CALLER] Request body: ${JSON.stringify(requestBody)}`);
+				// Note: Request body may contain sensitive data - log only structure, not contents
+				api.log("debug", `[API_CALLER] Request body includes ${Object.keys(requestBody).length} fields`);
 			}
 
 			api.log("info", `[API_CALLER] Making ${method} request to: ${fullEndpoint}`);
@@ -178,7 +260,8 @@ export const smartReachAPICaller = createNodeDescriptor({
 
 			if (!response.ok) {
 				const errorText = await response.text();
-				api.log("error", `[API_CALLER] Error response: ${errorText}`);
+				// Note: Error response may contain sensitive data - logging only status code
+				api.log("error", `[API_CALLER] Error response (status ${response.status})`);
 				throw new Error(`API returned ${response.status}: ${errorText}`);
 			}
 
@@ -186,7 +269,8 @@ export const smartReachAPICaller = createNodeDescriptor({
 			let data: any = { success: true };
 			if (response.status !== 204) {
 				data = await response.json();
-				api.log("info", `[API_CALLER] Response data (first 200 chars): ${JSON.stringify(data).substring(0, 200)}`);
+				// Log success without exposing response data which may contain PII
+				api.log("info", `[API_CALLER] Response received successfully`);
 			}
 
 			api.log("info", `[API_CALLER] API call successful, storing in ${storeLocation}.${storeKey}`);
@@ -198,9 +282,68 @@ export const smartReachAPICaller = createNodeDescriptor({
 				(input as any)[storeKey] = data;
 			}
 
+			// Route to success child
+			const onSuccessChild = childConfigs.find(child => child.type === "onSuccessAPICaller");
+			if (onSuccessChild) {
+				api.setNextNode(onSuccessChild.id);
+			}
+
 		} catch (error) {
-			api.log("error", `API call failed: ${error.message}`);
-			throw error;
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			api.log("error", `API call failed: ${errorMessage}`);
+
+			// Route to error child
+			const onErrorChild = childConfigs.find(child => child.type === "onErrorAPICaller");
+			if (onErrorChild) {
+				api.setNextNode(onErrorChild.id);
+			} else {
+				// If no error child, re-throw
+				throw error;
+			}
 		}
+	}
+});
+
+export const onSuccess = createNodeDescriptor({
+	type: "onSuccessAPICaller",
+	parentType: "smartReachAPICaller",
+	defaultLabel: "On Success",
+	constraints: {
+		editable: false,
+		deletable: false,
+		creatable: false,
+		movable: false,
+		placement: {
+			predecessor: {
+				whitelist: []
+			}
+		}
+	},
+	appearance: {
+		color: "#61d188",
+		textColor: "white",
+		variant: "mini"
+	}
+});
+
+export const onError = createNodeDescriptor({
+	type: "onErrorAPICaller",
+	parentType: "smartReachAPICaller",
+	defaultLabel: "On Error",
+	constraints: {
+		editable: false,
+		deletable: false,
+		creatable: false,
+		movable: false,
+		placement: {
+			predecessor: {
+				whitelist: []
+			}
+		}
+	},
+	appearance: {
+		color: "#cf142b",
+		textColor: "white",
+		variant: "mini"
 	}
 });

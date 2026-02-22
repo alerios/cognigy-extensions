@@ -22,34 +22,6 @@ export const initSmartReachContext = createNodeDescriptor({
 			}
 		},
 		{
-			key: "storeLocation",
-			label: "Where to store the result",
-			type: "select",
-			defaultValue: "context",
-			params: {
-				options: [
-					{
-						label: "Input",
-						value: "input"
-					},
-					{
-						label: "Context",
-						value: "context"
-					}
-				],
-				required: true
-			}
-		},
-		{
-			key: "contextKey",
-			label: "Context Key",
-			type: "cognigyText",
-			defaultValue: "smartreach",
-			params: {
-				required: true
-			}
-		},
-		{
 			key: "fallbackAgentLoginId",
 			label: "Fallback Agent Login ID",
 			type: "cognigyText",
@@ -59,12 +31,6 @@ export const initSmartReachContext = createNodeDescriptor({
 	],
 	sections: [
 		{
-			key: "storage",
-			label: "Storage Options",
-			defaultCollapsed: true,
-			fields: ["storeLocation", "contextKey"]
-		},
-		{
 			key: "advanced",
 			label: "Advanced",
 			defaultCollapsed: true,
@@ -73,7 +39,6 @@ export const initSmartReachContext = createNodeDescriptor({
 	],
 	form: [
 		{ type: "field", key: "connection" },
-		{ type: "section", key: "storage" },
 		{ type: "section", key: "advanced" }
 	],
 	appearance: {
@@ -87,7 +52,7 @@ export const initSmartReachContext = createNodeDescriptor({
 	},
 	function: async ({ cognigy, config, childConfigs }: INodeFunctionBaseParams) => {
 		const { api, input, context } = cognigy;
-		const { connection, storeLocation, contextKey, fallbackAgentLoginId } = config as any;
+		const { connection, fallbackAgentLoginId } = config as any;
 
 		try {
 			// Parse SIP headers from input - headers are in payload.sip.headers
@@ -105,7 +70,7 @@ export const initSmartReachContext = createNodeDescriptor({
 			if (!dnis) {
 				// Extract from 'to' header (format: <sip:+18990005353@...>)
 				const toHeader = sipHeaders['to'] || sipHeaders['To'] || "";
-				const toMatch = toHeader.match(/sip:([^\@]+)/);
+				const toMatch = toHeader.match(/sip:(\+?[0-9]+)/);
 				if (toMatch && toMatch[1]) {
 					dnis = toMatch[1];
 				}
@@ -114,7 +79,7 @@ export const initSmartReachContext = createNodeDescriptor({
 			if (!dnis) {
 				// Extract from 'uri' header (format: sip:+18990005353@sip-dev-vg.cognigy.ai)
 				const uriHeader = sipHeaders['uri'] || sipHeaders['Uri'] || "";
-				const uriMatch = uriHeader.match(/sip:([^\@]+)/);
+				const uriMatch = uriHeader.match(/sip:(\+?[0-9]+)/);
 				if (uriMatch && uriMatch[1]) {
 					dnis = uriMatch[1];
 				}
@@ -123,17 +88,18 @@ export const initSmartReachContext = createNodeDescriptor({
 			// Extract ANI (Automatic Number Identification) from 'from' header
 			let ani = "";
 			const fromHeader = sipHeaders['from'] || sipHeaders['From'] || "";
-			const fromMatch = fromHeader.match(/sip:([^\@]+)/);
+			const fromMatch = fromHeader.match(/sip:(\+?[0-9]+)/);
 			if (fromMatch && fromMatch[1]) {
 				ani = fromMatch[1];
 			}
 
-			api.log("info", `Initializing SmartReach context - Agent: ${agentLoginId}, TransactionId: ${transactionId}, SessionId: ${sessionId}, DNIS: ${dnis}, ANI: ${ani}`);
+			// Log only safe identifiers: transactionId, sessionId, and phone numbers
+			api.log("info", `Initializing SmartReach context - TransactionId: ${transactionId}, SessionId: ${sessionId}, DNIS: ${dnis}, ANI: ${ani}`);
 
 			// Authenticate and get session token
 			const lvSessionToken = await getSessionToken(
 				api,
-				connection.baseUrl,
+				connection.apiBaseUrl,
 				connection.accessToken,
 				connection.clientName,
 				agentLoginId,
@@ -143,11 +109,10 @@ export const initSmartReachContext = createNodeDescriptor({
 			// Get screen pop data
 			let screenPop: IScreenPopData = {};
 			try {
-				screenPop = await getScreenPopDetails(api, connection.baseUrl, lvSessionToken);
+				screenPop = await getScreenPopDetails(api, connection.apiBaseUrl, lvSessionToken);
 			} catch (error) {
-				api.log("warn", `Screen pop failed but continuing: ${error.message}`);
+				api.log("warn", `Screen pop failed but continuing: ${error instanceof Error ? error.message : String(error)}`);
 			}
-
 			// Build SmartReach context object
 			const smartreachContext = {
 				agentLoginId,
@@ -161,14 +126,11 @@ export const initSmartReachContext = createNodeDescriptor({
 				timestamp: new Date().toISOString()
 			};
 
-			// Store in specified location
-			if (storeLocation === "context") {
-				(context as any)[contextKey] = smartreachContext;
-			} else {
-				(input as any)[contextKey] = smartreachContext;
-			}
+			// Store in context.smartreach (standardized location for all nodes)
+			(context as any).smartreach = smartreachContext;
 
-			api.log("info", "SmartReach context initialized successfully");
+			// Log without PII - only session/transaction IDs, phone numbers are safe
+			api.log("info", `SmartReach context initialized (sessionId: ${sessionId}, transactionId: ${transactionId})`);
 
 			// Route to success child
 			const onSuccessChild = childConfigs.find(child => child.type === "onSuccessInit");
@@ -177,20 +139,17 @@ export const initSmartReachContext = createNodeDescriptor({
 			}
 
 		} catch (error) {
-			api.log("error", `Failed to initialize SmartReach context: ${error.message}`);
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			api.log("error", `Failed to initialize SmartReach context: ${errorMessage}`);
 
-			// Store error information
+			// Store error information in context.smartreach
 			const errorData = {
-				error: error.message,
+				error: errorMessage,
 				initialized: false,
 				timestamp: new Date().toISOString()
 			};
 
-			if (storeLocation === "context") {
-				(context as any)[contextKey] = errorData;
-			} else {
-				(input as any)[contextKey] = errorData;
-			}
+			(context as any).smartreach = errorData;
 
 			// Route to error child
 			const onErrorChild = childConfigs.find(child => child.type === "onErrorInit");

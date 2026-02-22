@@ -3,6 +3,8 @@
  * Author: Alejandro Rios <alejandro.rios@nice.com>
  */
 
+const SCREENPOP_TIMEOUT_MS = 10000; // 10 second timeout for screen pop requests
+
 export interface IScreenPopRow {
 	key: string;
 	value: string;
@@ -27,11 +29,12 @@ export function parseScreenPopData(screenPopRows: IScreenPopRow[]): IScreenPopDa
 	const data: IScreenPopData = {};
 
 	for (const row of screenPopRows) {
-		const key = row.key.toLowerCase().replace(/\s+/g, "");
+		// Normalize key: lowercase, remove spaces and underscores
+		const normalizedKey = row.key.toLowerCase().replace(/[\s_]+/g, "");
 		const value = row.value;
 
 		// Map common fields to camelCase properties
-		switch (key) {
+		switch (normalizedKey) {
 			case "firstname":
 				data.firstName = value;
 				break;
@@ -67,20 +70,27 @@ export function parseScreenPopData(screenPopRows: IScreenPopRow[]): IScreenPopDa
  */
 export async function getScreenPopDetails(
 	api: any,
-	baseUrl: string,
+	apiBaseUrl: string,
 	sessionId: string
 ): Promise<IScreenPopData> {
-	const endpoint = `${baseUrl}/callControl/agent/screenpop`;
+	const endpoint = `${apiBaseUrl}/callControl/agent/screenpop`;
 
 	try {
+		// Create an AbortController for timeout
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), SCREENPOP_TIMEOUT_MS);
+
 		const response = await fetch(endpoint, {
 			method: "GET",
 			headers: {
 				"LV-Session": sessionId,
 				"Content-Type": "application/json",
 				"Accept": "application/json"
-			}
+			},
+			signal: controller.signal
 		});
+
+		clearTimeout(timeoutId);
 
 		if (!response.ok) {
 			const errorText = await response.text();
@@ -95,12 +105,13 @@ export async function getScreenPopDetails(
 		}
 
 		const parsedData = parseScreenPopData(data.screenPopRow);
-		api.log("info", `Screen pop retrieved: ${Object.keys(parsedData).length} fields`);
-		api.log("info", `Screen pop data: ${JSON.stringify(parsedData)}`);
-		api.log("info", `Raw screen pop rows: ${JSON.stringify(data.screenPopRow)}`);
+		const parsedFieldKeys = Object.keys(parsedData);
+		api.log("info", `Screen pop retrieved: ${parsedFieldKeys.length} fields`);
+		api.log("debug", `Screen pop field keys: ${JSON.stringify(parsedFieldKeys)}`);
+		api.log("debug", `Raw screen pop row count: ${Array.isArray(data.screenPopRow) ? data.screenPopRow.length : 0}`);
 		return parsedData;
 	} catch (error) {
-		api.log("warn", `Failed to get screen pop: ${error.message}`);
+		api.log("warn", `Failed to get screen pop: ${error instanceof Error ? error.message : String(error)}`);
 		// Return empty data instead of throwing - call can continue without screen pop
 		return {};
 	}

@@ -9,9 +9,9 @@ export const smartreachConnection: IConnectionSchema = {
 	type: "smartreach",
 	label: "SmartReach (LiveVox) Connection",
 	fields: [
-		{ fieldName: "accessToken" },
+		{ fieldName: "accessToken" }, // Sensitive: API access token
 		{ fieldName: "clientName" },
-		{ fieldName: "agentPassword" },
-		{ fieldName: "baseUrl" }
+		{ fieldName: "agentPassword" }, // Sensitive: Agent password
+		{ fieldName: "apiBaseUrl" },
 	]
 };
